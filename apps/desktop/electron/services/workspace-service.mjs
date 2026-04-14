@@ -4,19 +4,44 @@ import path from "node:path";
 import { AppError } from "./errors.mjs";
 
 const textExtensions = new Set([
-  ".txt",
-  ".md",
-  ".js",
-  ".ts",
-  ".tsx",
-  ".json",
-  ".css",
-  ".html",
-  ".xml",
-  ".yml",
-  ".yaml",
-  ".env",
-  ".gitignore"
+  // Plain / docs
+  ".txt", ".md", ".markdown", ".rst", ".adoc", ".log", ".csv", ".tsv",
+  // Web
+  ".html", ".htm", ".css", ".scss", ".sass", ".less", ".xml", ".svg",
+  ".vue", ".svelte", ".astro",
+  // JS / TS
+  ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".json5", ".jsonc",
+  // Config
+  ".yml", ".yaml", ".toml", ".ini", ".conf", ".cfg", ".properties",
+  ".env", ".editorconfig", ".gitignore", ".gitattributes", ".dockerignore",
+  ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc", ".babelrc",
+  // Shell / scripts
+  ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+  // Languages
+  ".py", ".rb", ".php", ".pl", ".lua", ".r", ".java", ".kt", ".kts",
+  ".scala", ".groovy", ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp",
+  ".cs", ".fs", ".m", ".mm", ".swift", ".dart", ".ex", ".exs", ".erl",
+  ".clj", ".cljs", ".hs", ".ml", ".nim", ".zig", ".jl", ".v",
+  // Data / query
+  ".sql", ".graphql", ".gql", ".proto", ".prisma",
+  // Build / infra
+  ".dockerfile", ".makefile", ".mk", ".cmake", ".gradle", ".sbt",
+  ".tf", ".tfvars", ".hcl",
+  // Misc
+  ".patch", ".diff", ".srt", ".vtt"
+]);
+
+const textFilenames = new Set([
+  "dockerfile",
+  "makefile",
+  "rakefile",
+  "gemfile",
+  "procfile",
+  "license",
+  "readme",
+  "changelog",
+  "authors",
+  "contributors"
 ]);
 
 /**
@@ -104,7 +129,8 @@ export class WorkspaceService {
   }
 
   getMimeType(relativePath) {
-    const ext = path.extname(relativePath).toLowerCase();
+    const base = path.basename(relativePath).toLowerCase();
+    const ext = path.extname(base);
     if (ext === ".pdf") return "application/pdf";
     if (ext === ".png") return "image/png";
     if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
@@ -125,11 +151,16 @@ export class WorkspaceService {
       return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     if (ext === ".ppt") return "application/vnd.ms-powerpoint";
     if (textExtensions.has(ext)) return "text/plain";
+    const nameNoExt = ext ? base.slice(0, -ext.length) : base;
+    if (textFilenames.has(base) || textFilenames.has(nameNoExt)) return "text/plain";
     return "application/octet-stream";
   }
 
   isBinary(relativePath) {
-    return this.getMimeType(relativePath) !== "text/plain";
+    const mime = this.getMimeType(relativePath);
+    if (mime === "text/plain") return false;
+    if (mime === "application/octet-stream") return false;
+    return true;
   }
 
   async listFiles(workspaceId) {
