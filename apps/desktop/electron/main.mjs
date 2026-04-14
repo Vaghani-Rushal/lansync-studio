@@ -208,8 +208,9 @@ const onWireMessage = async (socket, message) => {
       return;
     }
 
-    // Register a pending join; host must explicitly approve via the UI.
-    sessionService.addPendingJoin(
+    // Session code already validated — grant direct access.
+    const permission = ws.defaultPermission ?? "VIEW_EDIT";
+    const requestId = sessionService.addPendingJoin(
       {
         workspaceId,
         clientId,
@@ -217,25 +218,33 @@ const onWireMessage = async (socket, message) => {
         correlationId: message.correlationId
       },
       socket,
-      (expiredRequestId) => {
-        try {
-          transportService.send(socket, "JOIN_REJECT", message.correlationId, {
-            reason: "Request timed out",
-            workspaceId
-          });
-          socket.close();
-        } catch {
-          /* no-op */
-        }
-        logger.info({ expiredRequestId }, "Pending join expired");
-        pushHostSnapshot();
+      () => {
+        /* no-op: immediately approved below */
       }
     );
+    const approval = sessionService.approveJoin(requestId, permission);
+    if (!approval) {
+      sendError(socket, message.correlationId, "JOIN_FAILED", "Unable to create session");
+      return;
+    }
 
-    transportService.send(socket, "JOIN_PENDING", message.correlationId, {
+    transportService.send(socket, "JOIN_ACCEPT", message.correlationId, {
+      sessionToken: approval.client.sessionToken,
+      workspaceName: ws.workspaceName,
+      hostName: identityService?.get()?.displayName ?? app.getName(),
       workspaceId: ws.workspaceId,
-      workspaceName: ws.workspaceName
+      sessionCode: ws.sessionCode,
+      permission,
+      capabilities: permissionToCapabilities(permission)
     });
+
+    const entries = await workspaceService.listFiles(ws.workspaceId);
+    transportService.send(socket, "WORKSPACE_SNAPSHOT", randomUUID(), {
+      workspaceId: ws.workspaceId,
+      workspaceName: ws.workspaceName,
+      entries
+    });
+    broadcastClientsUpdate(ws.workspaceId);
     pushHostSnapshot();
     return;
   }
