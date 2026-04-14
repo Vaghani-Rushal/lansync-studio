@@ -204,7 +204,7 @@ export const ViewerScreen = ({
             </div>
           ) : null}
           {selectedFile && !isText && !isImage && !isPdf && !isVideo && !isAudio && !isDocx ? (
-            <div className="info-card">Preview not available for this file type yet.</div>
+            previewText ? <pre className="preview-text">{previewText}</pre> : <div className="info-card">Preview not available for this file type yet.</div>
           ) : null}
           {isText && !editorText ? <pre className="preview-text">{previewText}</pre> : null}
         </div>

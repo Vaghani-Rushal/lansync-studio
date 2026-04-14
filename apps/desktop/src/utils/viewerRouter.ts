@@ -1,6 +1,10 @@
 export type ViewerKind = "code" | "pdf" | "image" | "video" | "audio" | "docx" | "unsupported";
 
 const textExtensions = new Set([
+  ".env",
+  ".gitignore",
+  ".npmrc",
+  ".editorconfig",
   ".txt",
   ".md",
   ".json",
@@ -8,6 +12,16 @@ const textExtensions = new Set([
   ".jsx",
   ".ts",
   ".tsx",
+  ".cjs",
+  ".mjs",
+  ".py",
+  ".java",
+  ".go",
+  ".rs",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".ps1",
   ".css",
   ".html",
   ".xml",
@@ -20,6 +34,7 @@ const textExtensions = new Set([
 export const isTextEditableFile = (mimeType: string | null, relativePath: string | null) => {
   const mime = (mimeType ?? "application/octet-stream").toLowerCase();
   const rel = (relativePath ?? "").toLowerCase();
+  const fileName = rel.split("/").pop() ?? rel;
   if (mime.startsWith("text/")) return true;
   if (
     mime.includes("json") ||
@@ -33,6 +48,7 @@ export const isTextEditableFile = (mimeType: string | null, relativePath: string
   for (const ext of textExtensions) {
     if (rel.endsWith(ext)) return true;
   }
+  if (fileName === ".env" || fileName === ".gitignore" || fileName === ".dockerignore") return true;
   return false;
 };
 

@@ -17,6 +17,9 @@ describe("viewerRouter", () => {
     expect(isTextEditableFile("application/json", "a.bin")).toBe(true);
     expect(isTextEditableFile("application/octet-stream", "README.md")).toBe(true);
     expect(isTextEditableFile("application/octet-stream", "notes.txt")).toBe(true);
+    expect(isTextEditableFile("application/octet-stream", ".gitignore")).toBe(true);
+    expect(isTextEditableFile("application/octet-stream", ".env")).toBe(true);
+    expect(isTextEditableFile("application/octet-stream", "run.sh")).toBe(true);
     expect(getViewerKind("application/octet-stream", "notes.md")).toBe("code");
   });
 });

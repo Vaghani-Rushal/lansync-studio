@@ -17,6 +17,33 @@ const hashBytesSha256 = async (bytes: Uint8Array) => {
     .join("");
 };
 
+const isLikelyTextContent = (bytes: Uint8Array) => {
+  if (bytes.length === 0) return true;
+  const sampleSize = Math.min(bytes.length, 2048);
+  let printable = 0;
+  for (let i = 0; i < sampleSize; i += 1) {
+    const value = bytes[i];
+    if (value === 0) return false;
+    if (value === 9 || value === 10 || value === 13 || (value >= 32 && value <= 126)) {
+      printable += 1;
+    }
+  }
+  return printable / sampleSize > 0.85;
+};
+
+const toHexDumpPreview = (relativePath: string, mimeType: string, bytes: Uint8Array) => {
+  const sample = bytes.slice(0, 512);
+  const lines: string[] = [];
+  for (let i = 0; i < sample.length; i += 16) {
+    const slice = sample.slice(i, i + 16);
+    const hex = Array.from(slice)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
+    lines.push(`${i.toString(16).padStart(4, "0")}: ${hex}`);
+  }
+  return `Binary preview\nPath: ${relativePath}\nMIME: ${mimeType}\nSize: ${bytes.length} bytes\n\nHex sample (first ${sample.length} bytes):\n${lines.join("\n")}`;
+};
+
 const buildTree = (entries: Array<{ path: string; name: string; isDirectory: boolean; size?: number; mimeType?: string }>) =>
   entries.map((entry) => ({
     id: entry.path,
@@ -290,7 +317,7 @@ export const useLanShareBridge = () => {
               .convertToHtml({ arrayBuffer })
               .then((result) => setDocxPreview({ status: "ready", html: result.value }))
               .catch((err) => setDocxPreview({ status: "error", message: err instanceof Error ? err.message : String(err) }));
-          } else if (isTextEditableFile(mimeType, payload.relativePath)) {
+          } else if (isTextEditableFile(mimeType, payload.relativePath) || isLikelyTextContent(uint8)) {
             revokeBlob();
             setDocxPreview(null);
             const text = new TextDecoder().decode(uint8);
@@ -307,7 +334,7 @@ export const useLanShareBridge = () => {
           } else {
             revokeBlob();
             setDocxPreview(null);
-            setPreviewText("");
+            setPreviewText(toHexDumpPreview(payload.relativePath, mimeType, uint8));
             setEditorText("");
             setIsDirty(false);
             setPreviewBuffer(null);
