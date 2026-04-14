@@ -20,8 +20,6 @@ declare global {
       listWorkspaceFiles(): Promise<WorkspaceEntry[]>;
       startDiscovery(): Promise<{ ok: boolean }>;
       stopDiscovery(): Promise<{ ok: boolean }>;
-      approveJoin(requestId: string): Promise<{ ok: boolean }>;
-      rejectJoin(requestId: string): Promise<{ ok: boolean }>;
       stopSession(): Promise<{ ok: boolean }>;
       joinWorkspace(workspace: DiscoveryWorkspace): Promise<{ ok: boolean }>;
       openFile(relativePath: string): Promise<{ ok: boolean; correlationId?: string; error?: string }>;
@@ -35,9 +33,6 @@ declare global {
       disconnectClient(): Promise<{ ok: boolean }>;
       reconnectClient(): Promise<{ ok: boolean }>;
       onWorkspaces(listener: Listener<DiscoveryWorkspace[]>): () => void;
-      onPendingJoins(
-        listener: Listener<Array<{ requestId: string; deviceName: string; clientId: string; requestedAt: number }>>
-      ): () => void;
       onClientMessage(listener: Listener<ClientMessage>): () => void;
       onHostStatus(listener: Listener<{ state: string; message?: string; workspaceName?: string; sessionCode?: string }>): () => void;
       onSessionClients(listener: Listener<ConnectedClient[]>): () => void;

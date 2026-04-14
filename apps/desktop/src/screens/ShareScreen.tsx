@@ -1,11 +1,10 @@
-import type { ConnectedClient, FileTreeNode, PendingJoin } from "@pcconnector/shared-types";
+import type { ConnectedClient, FileTreeNode } from "@pcconnector/shared-types";
 
 type Props = {
   workspaceName: string;
   sessionCode: string;
   status: string;
   hostFiles: FileTreeNode[];
-  pendingJoins: PendingJoin[];
   connectedClients: ConnectedClient[];
   isCreatingWorkspace: boolean;
   sharePermission: "VIEW_ONLY" | "VIEW_EDIT";
@@ -14,8 +13,6 @@ type Props = {
   onCreateWorkspace: () => Promise<void>;
   onSharePermissionChange: (permission: "VIEW_ONLY" | "VIEW_EDIT") => void;
   onStopSession: () => Promise<void>;
-  onApproveJoin: (requestId: string) => Promise<void>;
-  onRejectJoin: (requestId: string) => Promise<void>;
   onBack: () => void;
 };
 
@@ -24,7 +21,6 @@ export const ShareScreen = ({
   sessionCode,
   status,
   hostFiles,
-  pendingJoins,
   connectedClients,
   isCreatingWorkspace,
   sharePermission,
@@ -33,8 +29,6 @@ export const ShareScreen = ({
   onCreateWorkspace,
   onSharePermissionChange,
   onStopSession,
-  onApproveJoin,
-  onRejectJoin,
   onBack
 }: Props) => {
   const isHosting = Boolean(sessionCode);
@@ -128,20 +122,6 @@ export const ShareScreen = ({
               <span className={`status-pill ${client.capabilities.includes("write") ? "ok" : ""}`}>
                 {client.capabilities.includes("write") ? "Editing" : "Viewing"}
               </span>
-            </div>
-          ))}
-
-          <div className="section-title">Pending requests</div>
-          {pendingJoins.length === 0 ? <div className="muted">No pending requests</div> : null}
-          {pendingJoins.map((request) => (
-            <div className="workspace-row card-surface" key={request.requestId}>
-              <span>{request.deviceName}</span>
-              <div className="row-wrap">
-                <button className="primary-btn" onClick={() => onApproveJoin(request.requestId)}>
-                  Approve
-                </button>
-                <button onClick={() => onRejectJoin(request.requestId)}>Reject</button>
-              </div>
             </div>
           ))}
 

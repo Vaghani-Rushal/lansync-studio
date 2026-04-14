@@ -6,8 +6,6 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
   listWorkspaceFiles: () => ipcRenderer.invoke("workspace:list-files"),
   startDiscovery: () => ipcRenderer.invoke("discovery:start"),
   stopDiscovery: () => ipcRenderer.invoke("discovery:stop"),
-  approveJoin: (requestId) => ipcRenderer.invoke("session:approve", requestId),
-  rejectJoin: (requestId) => ipcRenderer.invoke("session:reject", requestId),
   stopSession: () => ipcRenderer.invoke("session:stop"),
   joinWorkspace: (workspace) => ipcRenderer.invoke("client:join-workspace", workspace),
   openFile: (relativePath) => ipcRenderer.invoke("client:open-file", relativePath),
@@ -24,11 +22,6 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on("discovery:workspaces", handler);
     return () => ipcRenderer.removeListener("discovery:workspaces", handler);
-  },
-  onPendingJoins: (listener) => {
-    const handler = (_event, payload) => listener(payload);
-    ipcRenderer.on("session:pending-joins", handler);
-    return () => ipcRenderer.removeListener("session:pending-joins", handler);
   },
   onClientMessage: (listener) => {
     const handler = (_event, payload) => listener(payload);

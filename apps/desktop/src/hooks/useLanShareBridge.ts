@@ -46,7 +46,6 @@ export const useLanShareBridge = () => {
   >(new Map());
 
   const setDiscovered = useLanShareStore((s) => s.setDiscovered);
-  const setPendingJoins = useLanShareStore((s) => s.setPendingJoins);
   const setConnectedClients = useLanShareStore((s) => s.setConnectedClients);
   const setConnectionState = useLanShareStore((s) => s.setConnectionState);
   const setClientFiles = useLanShareStore((s) => s.setClientFiles);
@@ -113,7 +112,6 @@ export const useLanShareBridge = () => {
     };
 
     const offWorkspaces = api.onWorkspaces(setDiscovered);
-    const offPending = api.onPendingJoins(setPendingJoins);
     const offClients = api.onSessionClients(setConnectedClients);
     const offMessages = api.onClientMessage((message) => {
       pushClientMessage(`${message.type}: ${JSON.stringify(message.payload)}`);
@@ -348,7 +346,6 @@ export const useLanShareBridge = () => {
     return () => {
       revokeBlob();
       offWorkspaces();
-      offPending();
       offClients();
       offMessages();
       offHostStatus();
@@ -369,7 +366,6 @@ export const useLanShareBridge = () => {
     setEditorText,
     setErrorBanner,
     setIsDirty,
-    setPendingJoins,
     setPreviewText,
     setPreviewUrl,
     setSelectedMimeType,

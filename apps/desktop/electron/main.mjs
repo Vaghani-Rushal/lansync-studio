@@ -199,9 +199,33 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
           },
           socket
         );
-        mainWindow?.webContents.send("session:pending-joins", sessionService.listPendingJoins());
-        mainWindow?.webContents.send("session:clients", sessionService.listConnectedClients());
-        transportService.send(socket, "HELLO", message.correlationId, { requestId, status: "pending" });
+        const approved = sessionService.approveJoin(requestId);
+        if (!approved) {
+          transportService.send(socket, "JOIN_REJECT", message.correlationId, {
+            reason: "Unable to create session token"
+          });
+          socket.close();
+          return;
+        }
+        const workspace = workspaceService.getWorkspace();
+        const entries = await workspaceService.listFiles();
+        transportService.send(socket, "JOIN_ACCEPT", message.correlationId, {
+          sessionToken: approved.sessionToken,
+          workspaceName: workspace?.workspaceName ?? "Workspace",
+          hostName: app.getName(),
+          workspaceId: workspace?.workspaceId ?? "",
+          sessionCode: activeSessionCode ?? "",
+          capabilities: activeSessionPermission === "VIEW_ONLY" ? ["read"] : ["read", "write"]
+        });
+        transportService.send(socket, "WORKSPACE_SNAPSHOT", randomUUID(), {
+          workspaceId: workspace?.workspaceId ?? "",
+          workspaceName: workspace?.workspaceName ?? "Workspace",
+          entries
+        });
+        const clients = sessionService.listConnectedClients();
+        for (const client of transportService.connections) {
+          transportService.send(client, "CLIENTS_UPDATE", randomUUID(), { clients });
+        }
         return;
       }
 
@@ -445,7 +469,6 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
       }
     },
     onConnectionClosed: () => {
-      mainWindow?.webContents.send("session:pending-joins", sessionService.listPendingJoins());
       mainWindow?.webContents.send("session:clients", sessionService.listConnectedClients());
     }
   });
@@ -489,48 +512,6 @@ ipcMain.handle("discovery:stop", async () => {
   return { ok: true };
 });
 
-ipcMain.handle("session:approve", async (_event, requestId) => {
-  const approved = sessionService.approveJoin(requestId);
-  if (!approved) {
-    return { ok: false };
-  }
-  mainWindow?.webContents.send("session:pending-joins", sessionService.listPendingJoins());
-  const workspace = workspaceService.getWorkspace();
-  const entries = await workspaceService.listFiles();
-  transportService.send(approved.request.socket, "JOIN_ACCEPT", randomUUID(), {
-    sessionToken: approved.sessionToken,
-    workspaceName: workspace?.workspaceName ?? "Workspace",
-    hostName: app.getName(),
-    workspaceId: workspace?.workspaceId ?? "",
-    sessionCode: activeSessionCode ?? "",
-    capabilities: activeSessionPermission === "VIEW_ONLY" ? ["read"] : ["read", "write"]
-  });
-  transportService.send(approved.request.socket, "WORKSPACE_SNAPSHOT", randomUUID(), {
-    workspaceId: workspace?.workspaceId ?? "",
-    workspaceName: workspace?.workspaceName ?? "Workspace",
-    entries
-  });
-  const clients = sessionService.listConnectedClients();
-  for (const client of transportService.connections) {
-    transportService.send(client, "CLIENTS_UPDATE", randomUUID(), { clients });
-  }
-  mainWindow?.webContents.send("session:clients", clients);
-  return { ok: true };
-});
-
-ipcMain.handle("session:reject", async (_event, requestId) => {
-  const rejected = sessionService.rejectJoin(requestId);
-  if (rejected?.socket) {
-    transportService.send(rejected.socket, "JOIN_REJECT", randomUUID(), {
-      reason: "Rejected by host"
-    });
-    rejected.socket.close();
-  }
-  mainWindow?.webContents.send("session:pending-joins", sessionService.listPendingJoins());
-  mainWindow?.webContents.send("session:clients", sessionService.listConnectedClients());
-  return { ok: Boolean(rejected) };
-});
-
 ipcMain.handle("session:stop", async () => {
   teardownWatcher();
   transportService.broadcastSessionStop();
@@ -567,10 +548,9 @@ ipcMain.handle("client:join-workspace", async (_event, workspace) => {
       },
       onMessage: (message) => {
         mainWindow?.webContents.send("client:message", message);
-        if (message.type === "HELLO") {
-          done({ ok: true, status: "pending_approval" });
-        } else if (message.type === "JOIN_ACCEPT") {
+        if (message.type === "JOIN_ACCEPT") {
           activeSessionToken = message.payload.sessionToken;
+          done({ ok: true, status: "connected" });
         } else if (message.type === "JOIN_REJECT") {
           activeSessionToken = null;
           transportService.disconnectClient();
@@ -723,8 +703,9 @@ ipcMain.handle("client:reconnect", async () => {
       },
       onMessage: (message) => {
         mainWindow?.webContents.send("client:message", message);
-        if (message.type === "HELLO") {
-          resolve({ ok: true, status: "pending_approval" });
+        if (message.type === "JOIN_ACCEPT") {
+          activeSessionToken = message.payload.sessionToken;
+          resolve({ ok: true, status: "connected" });
         }
       },
       onError: (_error) => resolve({ ok: false })

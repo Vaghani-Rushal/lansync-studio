@@ -27,7 +27,6 @@ function App() {
   const hostFiles = useLanShareStore((s) => s.hostFiles);
   const clientFiles = useLanShareStore((s) => s.clientFiles);
   const discovered = useLanShareStore((s) => s.discovered);
-  const pendingJoins = useLanShareStore((s) => s.pendingJoins);
   const connectedClients = useLanShareStore((s) => s.connectedClients);
   const connectionState = useLanShareStore((s) => s.connectionState);
   const errorBanner = useLanShareStore((s) => s.errorBanner);
@@ -100,7 +99,7 @@ function App() {
     setConnectionState("connecting");
     const result = await api.joinWorkspace(workspace);
     if (result.ok) {
-      setConnectionState("awaiting_approval");
+      setConnectionState("connected");
       setScreen("viewer");
       return;
     }
@@ -183,7 +182,6 @@ function App() {
           sessionCode={sessionCode}
           status={status}
           hostFiles={hostFiles}
-          pendingJoins={pendingJoins}
           connectedClients={connectedClients}
           isCreatingWorkspace={isCreatingWorkspace}
           sharePermission={sharePermission}
@@ -192,12 +190,6 @@ function App() {
           onCreateWorkspace={handleCreateWorkspace}
           onSharePermissionChange={setSharePermission}
           onStopSession={handleStopSession}
-          onApproveJoin={async (requestId) => {
-            await api?.approveJoin(requestId);
-          }}
-          onRejectJoin={async (requestId) => {
-            await api?.rejectJoin(requestId);
-          }}
           onBack={() => setScreen("home")}
         />
       ) : null}
@@ -223,7 +215,7 @@ function App() {
             if (!api || !bridgeReady) return;
             const response = await api.reconnectClient();
             if (response.ok) {
-              setConnectionState("awaiting_approval");
+              setConnectionState("connected");
               setScreen("viewer");
             }
           }}
