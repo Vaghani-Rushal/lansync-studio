@@ -127,4 +127,14 @@ export class WorkspaceService {
     await fs.writeFile(fullPath, content, "utf8");
     return { ok: true };
   }
+
+  async readTextFile(relativePath) {
+    const fullPath = this.ensureInWorkspace(relativePath);
+    if (this.isBinary(relativePath)) {
+      throw new AppError("UNSUPPORTED_EDIT_TYPE", "Reading as text is allowed only for text/code files", false, "filesystem", {
+        relativePath
+      });
+    }
+    return fs.readFile(fullPath, "utf8");
+  }
 }

@@ -20,6 +20,7 @@ export class TransportService {
     this.maxReconnectAttempts = 5;
     this.manualClose = false;
     this.activeTransfers = new Map();
+    this.transferAckTimeoutMs = 10_000;
   }
 
   startServer(port, handlers) {
@@ -140,15 +141,40 @@ export class TransportService {
     this.send(socket, "ERROR", randomUUID(), payload);
   }
 
-  cancelTransfer(transferId) {
+  cancelTransfer(transferId, requesterClientId) {
     const transfer = this.activeTransfers.get(transferId);
     if (!transfer) return false;
+    if (requesterClientId && transfer.ownerClientId !== requesterClientId) {
+      return false;
+    }
+    if (transfer.ackTimeout) {
+      clearTimeout(transfer.ackTimeout);
+    }
     transfer.stream.destroy();
     this.activeTransfers.delete(transferId);
     return true;
   }
 
-  async streamFile(socket, relativePath, correlationId) {
+  finalizeTransfer(transferId, requesterClientId, accepted, reason) {
+    const transfer = this.activeTransfers.get(transferId);
+    if (!transfer) return false;
+    if (requesterClientId && transfer.ownerClientId !== requesterClientId) return false;
+    if (transfer.ackTimeout) {
+      clearTimeout(transfer.ackTimeout);
+    }
+    this.activeTransfers.delete(transferId);
+    if (!accepted) {
+      this.send(transfer.socket, "ERROR", randomUUID(), {
+        code: "TRANSFER_INTEGRITY_FAILED",
+        message: reason || "Client rejected transferred file",
+        retryable: true,
+        source: "network"
+      });
+    }
+    return true;
+  }
+
+  async streamFile(socket, relativePath, correlationId, ownerClientId) {
     const transferId = randomUUID();
     try {
       const stream = this.workspaceService.createFileStream(relativePath);
@@ -158,7 +184,7 @@ export class TransportService {
       const hash = createHash("sha256");
       let sequence = 0;
 
-      this.activeTransfers.set(transferId, { stream, socket, relativePath });
+      this.activeTransfers.set(transferId, { stream, socket, relativePath, ownerClientId });
 
       this.send(socket, "FILE_START", correlationId, {
         transferId,
@@ -197,7 +223,19 @@ export class TransportService {
         fileSize: fileMeta.fileSize,
         checksumSha256: hash.digest("hex")
       });
-      this.activeTransfers.delete(transferId);
+      const ackTimeout = setTimeout(() => {
+        this.activeTransfers.delete(transferId);
+        this.send(socket, "ERROR", randomUUID(), {
+          code: "TRANSFER_ACK_TIMEOUT",
+          message: "Client did not acknowledge transfer integrity in time",
+          retryable: true,
+          source: "network"
+        });
+      }, this.transferAckTimeoutMs);
+      const existing = this.activeTransfers.get(transferId);
+      if (existing) {
+        this.activeTransfers.set(transferId, { ...existing, ackTimeout });
+      }
       return transferId;
     } catch (_error) {
       this.activeTransfers.delete(transferId);

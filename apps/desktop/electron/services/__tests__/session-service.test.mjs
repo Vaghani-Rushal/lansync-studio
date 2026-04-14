@@ -23,4 +23,13 @@ describe("SessionService", () => {
     const validClient = service.validateToken(approved.sessionToken, socketB);
     expect(validClient).toBeNull();
   });
+
+  it("keeps strict state transitions", () => {
+    const service = new SessionService();
+    expect(service.getState()).toBe("idle");
+    expect(service.setState("connected")).toBe(false);
+    expect(service.getState()).toBe("idle");
+    expect(service.setState("advertising")).toBe(true);
+    expect(service.getState()).toBe("advertising");
+  });
 });

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { DiscoveryWorkspace } from "@pcconnector/shared-types";
 
 type Props = {
@@ -29,11 +29,21 @@ export const JoinScreen = ({
   onBack
 }: Props) => {
   const discoveredCount = useMemo(() => discovered.length, [discovered.length]);
+  const [sessionCodeInput, setSessionCodeInput] = useState("");
+  const matchedWorkspace = useMemo(
+    () => discovered.find((workspace) => (workspace.sessionCode ?? "").toUpperCase() === sessionCodeInput.trim().toUpperCase()) ?? null,
+    [discovered, sessionCodeInput]
+  );
   return (
-    <section className="screen panel">
-      <div className="top-row">
-        <h2>Join Flow (Client)</h2>
-        <button onClick={onBack}>Back</button>
+    <section className="screen ui-shell">
+      <div className="top-row bar-row">
+        <button className="ghost-btn" onClick={onBack}>
+          Back
+        </button>
+        <h2 className="section-heading">Join a session</h2>
+        <button className="ghost-btn" disabled={!bridgeReady} onClick={onRetry}>
+          Retry
+        </button>
       </div>
       {!bridgeReady ? (
         <div className="error-banner">
@@ -46,33 +56,32 @@ export const JoinScreen = ({
           <button onClick={onDismissError}>Dismiss</button>
         </div>
       ) : null}
-      <div className="row-wrap">
-        <button disabled={!bridgeReady || isDiscovering} onClick={onStartDiscovery}>
-          Start Discovery
-        </button>
-        <button disabled={!bridgeReady || !isDiscovering} onClick={onStopDiscovery}>
-          Stop Discovery
-        </button>
-        <button disabled={!bridgeReady} onClick={onRetry}>
-          Retry
+      <div className="input-row card-surface">
+        <input
+          value={sessionCodeInput}
+          placeholder="e.g. TIGER-42"
+          onChange={(event) => setSessionCodeInput(event.target.value)}
+        />
+        <button
+          className="primary-btn"
+          disabled={!bridgeReady || !matchedWorkspace}
+          onClick={() => {
+            if (matchedWorkspace) void onJoinWorkspace(matchedWorkspace);
+          }}
+        >
+          Join
         </button>
       </div>
-      <p>Connection: {connectionState}</p>
-      <p>Discovered Hosts: {discoveredCount}</p>
-      {discovered.map((workspace) => (
-        <div className="workspace-row" key={workspace.workspaceId}>
-          <div>
-            <strong>{workspace.workspaceName}</strong>
-            <p>
-              {workspace.hostName} ({workspace.hostAddress}:{workspace.port})
-            </p>
-            {workspace.sessionCode ? <p className="subtle">Code: {workspace.sessionCode}</p> : null}
-          </div>
-          <button disabled={!bridgeReady} onClick={() => onJoinWorkspace(workspace)}>
-            Join
-          </button>
-        </div>
-      ))}
+      <div className="row-wrap">
+        <button disabled={!bridgeReady || isDiscovering} onClick={onStartDiscovery}>
+          Start discovery
+        </button>
+        <button disabled={!bridgeReady || !isDiscovering} onClick={onStopDiscovery}>
+          Stop discovery
+        </button>
+        <span className="status-pill">{connectionState}</span>
+      </div>
+      <div className="section-title">Nearby hosts detected: {discoveredCount}</div>
     </section>
   );
 };

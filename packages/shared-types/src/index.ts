@@ -5,6 +5,8 @@ export type DiscoveryWorkspace = {
   hostAddress: string;
   port: number;
   sessionCode?: string;
+  manualHost?: string;
+  manualPort?: number;
   lastSeenAt: number;
 };
 

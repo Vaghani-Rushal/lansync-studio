@@ -16,6 +16,12 @@ export const messageTypes = [
   "FILE_CHUNK",
   "FILE_PROGRESS",
   "FILE_END",
+  "FILE_ACK",
+  "FILE_NACK",
+  "CRDT_INIT",
+  "CRDT_SYNC_REQUEST",
+  "CRDT_SYNC_RESPONSE",
+  "CRDT_UPDATE",
   "ERROR",
   "PING",
   "PONG",
@@ -93,11 +99,45 @@ export const fileProgressSchema = z.object({
   totalChunks: z.number().nonnegative()
 });
 
+export const fileAckSchema = z.object({
+  sessionToken: z.string().min(16),
+  transferId: z.string().min(1),
+  relativePath: z.string().min(1)
+});
+
+export const fileNackSchema = z.object({
+  sessionToken: z.string().min(16),
+  transferId: z.string().min(1),
+  relativePath: z.string().min(1),
+  reason: z.string().min(1)
+});
+
 export const saveFileSchema = z.object({
   sessionToken: z.string().min(16),
   relativePath: z.string().min(1),
   content: z.string(),
   encoding: z.enum(["utf8"]).default("utf8")
+});
+
+export const crdtInitSchema = z.object({
+  sessionToken: z.string().min(16),
+  relativePath: z.string().min(1)
+});
+
+export const crdtSyncRequestSchema = z.object({
+  sessionToken: z.string().min(16),
+  relativePath: z.string().min(1)
+});
+
+export const crdtSyncResponseSchema = z.object({
+  relativePath: z.string().min(1),
+  stateUpdate: z.string().min(1)
+});
+
+export const crdtUpdateSchema = z.object({
+  sessionToken: z.string().min(16),
+  relativePath: z.string().min(1),
+  update: z.string().min(1)
 });
 
 export const cancelOpenFileSchema = z.object({

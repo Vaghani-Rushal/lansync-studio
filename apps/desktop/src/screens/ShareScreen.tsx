@@ -1,19 +1,18 @@
-import type { ConnectedClient, FileTreeNode, PendingJoin } from "@pcconnector/shared-types";
+import type { ConnectedClient, FileTreeNode } from "@pcconnector/shared-types";
 
 type Props = {
   workspaceName: string;
   sessionCode: string;
   status: string;
   hostFiles: FileTreeNode[];
-  pendingJoins: PendingJoin[];
   connectedClients: ConnectedClient[];
   isCreatingWorkspace: boolean;
+  sharePermission: "VIEW_ONLY" | "VIEW_EDIT";
   bridgeReady: boolean;
   onWorkspaceNameChange: (value: string) => void;
   onCreateWorkspace: () => Promise<void>;
+  onSharePermissionChange: (permission: "VIEW_ONLY" | "VIEW_EDIT") => void;
   onStopSession: () => Promise<void>;
-  onApproveJoin: (requestId: string) => Promise<void>;
-  onRejectJoin: (requestId: string) => Promise<void>;
   onBack: () => void;
 };
 
@@ -22,71 +21,120 @@ export const ShareScreen = ({
   sessionCode,
   status,
   hostFiles,
-  pendingJoins,
   connectedClients,
   isCreatingWorkspace,
+  sharePermission,
   bridgeReady,
   onWorkspaceNameChange,
   onCreateWorkspace,
+  onSharePermissionChange,
   onStopSession,
-  onApproveJoin,
-  onRejectJoin,
   onBack
-}: Props) => (
-  <section className="screen panel">
-    <div className="top-row">
-      <h2>Share Flow (Host)</h2>
-      <button onClick={onBack}>Back</button>
-    </div>
-    <ol className="subtle">
-      <li>Select workspace and start sharing.</li>
-      <li>Wait for join requests and approve clients.</li>
-      <li>Share this session code with trusted clients.</li>
-    </ol>
-    <label>Workspace Name</label>
-    <input value={workspaceName} onChange={(event) => onWorkspaceNameChange(event.target.value)} />
-    <div className="row-wrap">
-      <button disabled={!bridgeReady || isCreatingWorkspace} onClick={onCreateWorkspace}>
-        {isCreatingWorkspace ? "Creating..." : "Start Sharing"}
-      </button>
-      <button disabled={!bridgeReady} onClick={onStopSession}>
-        Stop Sharing
-      </button>
-    </div>
-    <p>Status: {status}</p>
-    {sessionCode ? (
-      <div className="code-box">
-        <strong>Session Code</strong>
-        <div>{sessionCode}</div>
+}: Props) => {
+  const isHosting = Boolean(sessionCode);
+  return (
+    <section className="screen ui-shell">
+      <div className="top-row bar-row">
+        <button className="ghost-btn" onClick={onBack}>
+          Back
+        </button>
+        <h2 className="section-heading">{isHosting ? "Hosting session" : "Share a file or folder"}</h2>
+        <span className="status-pill">{isHosting ? "Hosting" : "Setup"}</span>
       </div>
-    ) : null}
 
-    <h3>Pending Join Requests</h3>
-    {pendingJoins.length === 0 ? <p className="subtle">No pending requests</p> : null}
-    {pendingJoins.map((request) => (
-      <div className="join-request" key={request.requestId}>
-        <span>{request.deviceName}</span>
-        <div>
-          <button onClick={() => onApproveJoin(request.requestId)}>Approve</button>
-          <button onClick={() => onRejectJoin(request.requestId)}>Reject</button>
+      {!isHosting ? (
+        <div className="setup-steps">
+          <div className="step-card card-surface">
+            <div className="step-index">1</div>
+            <div className="step-body">
+              <div className="section-title">Select file or folder</div>
+              <input value={workspaceName} onChange={(event) => onWorkspaceNameChange(event.target.value)} />
+              <div className="muted">Choose the workspace folder to share on LAN.</div>
+            </div>
+          </div>
+
+          <div className="step-card card-surface">
+            <div className="step-index">2</div>
+            <div className="step-body">
+              <div className="section-title">Set permission</div>
+              <div className="permission-grid">
+                <button
+                  className={`permission-card ${sharePermission === "VIEW_ONLY" ? "is-active" : ""}`}
+                  onClick={() => onSharePermissionChange("VIEW_ONLY")}
+                >
+                  <div>View only</div>
+                  <div className="muted">Read-only access</div>
+                </button>
+                <button
+                  className={`permission-card ${sharePermission === "VIEW_EDIT" ? "is-active" : ""}`}
+                  onClick={() => onSharePermissionChange("VIEW_EDIT")}
+                >
+                  <div>View + Edit</div>
+                  <div className="muted">Collaborative editing</div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="step-card card-surface">
+            <div className="step-index">3</div>
+            <div className="step-body">
+              <div className="section-title">Start sharing</div>
+              <button className="primary-btn" disabled={!bridgeReady || isCreatingWorkspace} onClick={onCreateWorkspace}>
+                {isCreatingWorkspace ? "Starting..." : "Start sharing"}
+              </button>
+              <div className="muted">{status}</div>
+            </div>
+          </div>
         </div>
-      </div>
-    ))}
+      ) : (
+        <>
+          <div className="host-top-row">
+            <span className="live-pill">LIVE</span>
+            <button className="danger-btn" disabled={!bridgeReady} onClick={onStopSession}>
+              Stop sharing
+            </button>
+          </div>
+          <div className="code-card card-surface">
+            <div className="section-title">Share code</div>
+            <div className="code-display">{sessionCode}</div>
+            <div className="muted">Share this code with people on your network</div>
+          </div>
 
-    <h3>Connected Users</h3>
-    {connectedClients.length === 0 ? <p className="subtle">No active clients</p> : null}
-    {connectedClients.map((client) => (
-      <div className="join-request" key={client.clientId}>
-        <span>{client.deviceName}</span>
-        <span className="subtle">{new Date(client.connectedAt).toLocaleTimeString()}</span>
-      </div>
-    ))}
+          <div className="host-file-card card-surface">
+            <div className="section-title">Active workspace</div>
+            <div className="muted">{workspaceName}</div>
+            <ul className="file-list compact-list">
+              {hostFiles.slice(0, 8).map((node) => (
+                <li key={node.id}>{node.relativePath}</li>
+              ))}
+            </ul>
+          </div>
 
-    <h3>Workspace Files</h3>
-    <ul className="file-list compact-list">
-      {hostFiles.slice(0, 30).map((node) => (
-        <li key={node.id}>{node.relativePath}</li>
-      ))}
-    </ul>
-  </section>
-);
+          <div className="section-title">Connected users ({connectedClients.length})</div>
+          {connectedClients.length === 0 ? <div className="muted">No active clients</div> : null}
+          {connectedClients.map((client) => (
+            <div className="user-card card-surface" key={client.clientId}>
+              <div>
+                <strong>{client.deviceName}</strong>
+                <div className="muted">{new Date(client.connectedAt).toLocaleTimeString()}</div>
+              </div>
+              <span className={`status-pill ${client.capabilities.includes("write") ? "ok" : ""}`}>
+                {client.capabilities.includes("write") ? "Editing" : "Viewing"}
+              </span>
+            </div>
+          ))}
+
+          <div className="transport-card card-surface">
+            <div className="muted">Transport</div>
+            <div>WebSocket · :7777</div>
+            <div className="muted">Discovery</div>
+            <div>mDNS / Bonjour</div>
+            <div className="muted">Client storage</div>
+            <div className="ok-text">RAM only · 0 disk writes</div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+};
