@@ -30,8 +30,6 @@ export const JoinScreen = ({
 }: Props) => {
   const discoveredCount = useMemo(() => discovered.length, [discovered.length]);
   const [sessionCodeInput, setSessionCodeInput] = useState("");
-  const [manualHost, setManualHost] = useState("");
-  const [manualPort, setManualPort] = useState("7788");
   const matchedWorkspace = useMemo(
     () => discovered.find((workspace) => (workspace.sessionCode ?? "").toUpperCase() === sessionCodeInput.trim().toUpperCase()) ?? null,
     [discovered, sessionCodeInput]
@@ -66,23 +64,9 @@ export const JoinScreen = ({
         />
         <button
           className="primary-btn"
-          disabled={!bridgeReady || (!matchedWorkspace && (!manualHost || !manualPort))}
+          disabled={!bridgeReady || !matchedWorkspace}
           onClick={() => {
-            if (matchedWorkspace) {
-              void onJoinWorkspace(matchedWorkspace);
-              return;
-            }
-            void onJoinWorkspace({
-              workspaceId: `manual-${manualHost}-${manualPort}`,
-              workspaceName: "Manual Session",
-              hostName: manualHost,
-              hostAddress: manualHost,
-              port: Number(manualPort || "7788"),
-              sessionCode: sessionCodeInput.trim().toUpperCase(),
-              lastSeenAt: Date.now(),
-              manualHost,
-              manualPort: Number(manualPort || "7788")
-            });
+            if (matchedWorkspace) void onJoinWorkspace(matchedWorkspace);
           }}
         >
           Join
@@ -96,11 +80,6 @@ export const JoinScreen = ({
           Stop discovery
         </button>
         <span className="status-pill">{connectionState}</span>
-      </div>
-      <div className="manual-grid card-surface">
-        <div className="muted">Manual host fallback</div>
-        <input value={manualHost} placeholder="Host IP e.g. 192.168.1.10" onChange={(e) => setManualHost(e.target.value)} />
-        <input value={manualPort} placeholder="Port" onChange={(e) => setManualPort(e.target.value)} />
       </div>
       <div className="section-title">Or connect to a nearby device ({discoveredCount})</div>
       {discovered.map((workspace) => (
@@ -117,15 +96,6 @@ export const JoinScreen = ({
           </button>
         </div>
       ))}
-      <div className="info-panel card-surface">
-        <div className="section-title">How it works</div>
-        <ol>
-          <li>mDNS finds host on LAN</li>
-          <li>WebSocket opens direct connection</li>
-          <li>Streaming happens in chunks to RAM</li>
-          <li>No client disk writes</li>
-        </ol>
-      </div>
     </section>
   );
 };
