@@ -64,12 +64,17 @@ declare global {
       reconnectClient(): Promise<JoinResult>;
       getClientSessionState(): Promise<{ hasActiveSession: boolean; workspaceId?: string; workspace?: DiscoveryWorkspace }>;
 
+      // Clipboard
+      getClipboardHistory(): Promise<Array<{ historyId: string; text?: string; image?: string; timestamp: number }>>;
+      writeClipboardItem(payload: { historyId: string }): Promise<{ ok: boolean }>;
+
       // Listeners
       onWorkspaces(listener: Listener<DiscoveryWorkspace[]>): () => void;
       onClientMessage(listener: Listener<ClientMessage>): () => void;
       onHostStatus(listener: Listener<{ state: string; message?: string; workspaceName?: string; sessionCode?: string }>): () => void;
       onHostedWorkspaces(listener: Listener<HostedWorkspace[]>): () => void;
       onPendingJoins(listener: Listener<PendingJoin[]>): () => void;
+      onClipboardUpdate(listener: Listener<Array<{ historyId: string; text?: string; image?: string; timestamp: number }>>): () => void;
     };
   }
 }

@@ -28,7 +28,8 @@ export const messageTypes = [
   "ERROR",
   "PING",
   "PONG",
-  "SESSION_STOP"
+  "SESSION_STOP",
+  "CLIPBOARD_SYNC"
 ] as const;
 
 export const protocolVersion = "1.1.0";
@@ -189,4 +190,12 @@ export const errorPayloadSchema = z.object({
   retryable: z.boolean().default(false),
   source: z.enum(["main", "renderer", "network", "filesystem"]),
   details: z.record(z.string(), z.any()).optional()
+});
+
+export const clipboardSyncSchema = z.object({
+  historyId: z.string().uuid(),
+  text: z.string().optional(),
+  image: z.string().optional(),
+  timestamp: z.number(),
+  sessionToken: z.string().min(16).optional()
 });

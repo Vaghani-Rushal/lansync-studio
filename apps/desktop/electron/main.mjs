@@ -12,7 +12,8 @@ import {
   joinRequestSchema,
   openFileSchema,
   permissionSchema,
-  saveFileSchema
+  saveFileSchema,
+  clipboardSyncSchema
 } from "@pcconnector/protocol";
 import { DiscoveryService } from "./services/discovery-service.mjs";
 import { SessionService, permissionToCapabilities } from "./services/session-service.mjs";
@@ -20,6 +21,7 @@ import { WorkspaceService } from "./services/workspace-service.mjs";
 import { TransportService } from "./services/transport-service.mjs";
 import { CrdtService } from "./services/crdt-service.mjs";
 import { IdentityService } from "./services/identity-service.mjs";
+import { ClipboardService } from "./services/clipboard-service.mjs";
 import { AppError, toErrorPayload } from "./services/errors.mjs";
 import { logger } from "./services/logger.mjs";
 
@@ -31,6 +33,23 @@ const sessionService = new SessionService();
 const workspaceService = new WorkspaceService();
 const transportService = new TransportService(sessionService, workspaceService);
 const crdtService = new CrdtService(workspaceService);
+const clipboardService = new ClipboardService();
+
+clipboardService.on("local-clipboard-change", (item) => {
+  for (const ws of workspaceService.listWorkspaces()) {
+    transportService.broadcastToWorkspace(ws.workspaceId, "CLIPBOARD_SYNC", randomUUID(), item);
+  }
+  if (transportService.client && activeSessionToken) {
+    transportService.send(transportService.client, "CLIPBOARD_SYNC", randomUUID(), {
+      ...item,
+      sessionToken: activeSessionToken
+    });
+  }
+  if (mainWindow) {
+    mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
+  }
+});
+
 /** @type {IdentityService} */
 let identityService;
 
@@ -392,6 +411,30 @@ const onWireMessage = async (socket, message) => {
     }
     transportService.finalizeTransfer(parsed.data.transferId, client.clientId, false, parsed.data.reason);
   }
+
+  if (message.type === "CLIPBOARD_SYNC") {
+    const parsed = clipboardSyncSchema.safeParse(message.payload);
+    if (!parsed.success) {
+      sendError(socket, message.correlationId, "INVALID_CLIPBOARD_SYNC", "Clipboard sync payload is invalid");
+      return;
+    }
+    
+    clipboardService.writeFromRemote(parsed.data);
+    
+    if (parsed.data.sessionToken) {
+       const client = sessionService.validateToken(parsed.data.sessionToken, socket);
+       if (client) {
+          for (const target of sessionService.listConnectedSessionsForWorkspace(client.workspaceId)) {
+            if (target.socket === socket) continue;
+            transportService.send(target.socket, "CLIPBOARD_SYNC", message.correlationId, parsed.data);
+          }
+       }
+    }
+    
+    if (mainWindow) {
+       mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
+    }
+  }
 };
 
 const onConnectionClosed = (_socket, removedClients) => {
@@ -416,6 +459,7 @@ const ensureServerStarted = () => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
+  clipboardService.startPolling();
   identityService = new IdentityService(app.getPath("userData"));
   await identityService.load();
   await createWindow();
@@ -441,6 +485,18 @@ app.on("window-all-closed", () => {
 // ---------------------------------------------------------------------------
 ipcMain.handle("identity:get", async () => {
   return { ok: true, identity: identityService?.get() ?? null };
+});
+
+ipcMain.handle("clipboard:get-history", async () => {
+  return clipboardService.getHistory();
+});
+
+ipcMain.handle("clipboard:write", async (_event, payload) => {
+  if (payload?.historyId) {
+    clipboardService.setActiveHistoryItem(payload.historyId);
+    return { ok: true };
+  }
+  return { ok: false };
 });
 
 ipcMain.handle("identity:set", async (_event, payload) => {
@@ -487,6 +543,7 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
 
     ensureServerStarted();
     setupWorkspaceWatcher(workspaceId, rootPath);
+    clipboardService.startPolling();
 
     discovery.advertiseWorkspace({
       workspaceName: proposedName,
@@ -755,6 +812,7 @@ ipcMain.handle("client:join-workspace", async (_event, workspace) => {
         } else if (message.type === "JOIN_ACCEPT") {
           activeSessionToken = message.payload.sessionToken;
           activeJoinedWorkspaceId = message.payload.workspaceId;
+          clipboardService.startPolling();
           done({ ok: true, status: "connected" });
         } else if (message.type === "JOIN_REJECT") {
           activeSessionToken = null;

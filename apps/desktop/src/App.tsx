@@ -7,6 +7,7 @@ import { JoinScreen } from "./screens/JoinScreen";
 import { ShareScreen } from "./screens/ShareScreen";
 import { ViewerScreen } from "./screens/ViewerScreen";
 import { NameSetupScreen } from "./screens/NameSetupScreen";
+import { ClipboardHistory } from "./components/ClipboardHistory";
 
 import { useLanShareStore } from "./state/lanShareStore";
 
@@ -369,6 +370,7 @@ function App() {
         />
       ) : null}
 
+      <ClipboardHistory bridgeReady={bridgeReady} />
     </main>
   );
 }
