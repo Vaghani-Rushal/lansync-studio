@@ -16,12 +16,12 @@ export class SessionService {
       connected: new Set(["advertising", "stopped"]),
       stopped: new Set(["idle", "advertising"])
     };
-    if (next === this.state) return;
+    if (next === this.state) return true;
     if (allowedTransitions[this.state]?.has(next)) {
       this.state = next;
-      return;
+      return true;
     }
-    this.state = next;
+    return false;
   }
 
   getState() {
@@ -64,7 +64,8 @@ export class SessionService {
       sessionToken,
       tokenExpiresAt,
       socket: request.socket,
-      connectedAt: Date.now()
+      connectedAt: Date.now(),
+      capabilities: request.capabilities ?? ["read", "write"]
     };
     this.clients.set(request.clientId, client);
     this.tokenIndex.set(sessionToken, request.clientId);
@@ -118,7 +119,14 @@ export class SessionService {
       clientId: client.clientId,
       deviceName: client.deviceName,
       connectedAt: client.connectedAt,
-      capabilities: ["read"]
+      capabilities: client.capabilities
+    }));
+  }
+
+  listConnectedSessions() {
+    return Array.from(this.clients.values()).map((client) => ({
+      clientId: client.clientId,
+      socket: client.socket
     }));
   }
 

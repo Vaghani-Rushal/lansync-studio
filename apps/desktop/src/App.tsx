@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { DiscoveryWorkspace, FileTreeNode } from "@pcconnector/shared-types";
 import "./App.css";
 import { useLanShareBridge } from "./hooks/useLanShareBridge";
@@ -18,7 +19,7 @@ const buildTree = (entries: Array<{ path: string; name: string; isDirectory: boo
   }));
 
 function App() {
-  const { api, bridgeReady } = useLanShareBridge();
+  const { api, bridgeReady, applyEditorChange } = useLanShareBridge();
   const currentScreen = useLanShareStore((s) => s.currentScreen);
   const workspaceName = useLanShareStore((s) => s.workspaceName);
   const sessionCode = useLanShareStore((s) => s.sessionCode);
@@ -37,26 +38,31 @@ function App() {
   const isDirty = useLanShareStore((s) => s.isDirty);
   const isSaving = useLanShareStore((s) => s.isSaving);
   const previewUrl = useLanShareStore((s) => s.previewUrl);
+  const previewBuffer = useLanShareStore((s) => s.previewBuffer);
   const docxPreview = useLanShareStore((s) => s.docxPreview);
   const isCreatingWorkspace = useLanShareStore((s) => s.isCreatingWorkspace);
   const isDiscovering = useLanShareStore((s) => s.isDiscovering);
   const streamState = useLanShareStore((s) => s.streamState);
   const streamMeta = useLanShareStore((s) => s.streamMeta);
+  const sharePermission = useLanShareStore((s) => s.sharePermission);
+  const editorReadOnly = useLanShareStore((s) => s.editorReadOnly);
 
   const setScreen = useLanShareStore((s) => s.setScreen);
   const setWorkspaceName = useLanShareStore((s) => s.setWorkspaceName);
   const setSessionCode = useLanShareStore((s) => s.setSessionCode);
   const setStatus = useLanShareStore((s) => s.setStatus);
   const setHostFiles = useLanShareStore((s) => s.setHostFiles);
+  const setClientFiles = useLanShareStore((s) => s.setClientFiles);
+  const setPendingJoins = useLanShareStore((s) => s.setPendingJoins);
+  const setConnectedClients = useLanShareStore((s) => s.setConnectedClients);
   const setConnectionState = useLanShareStore((s) => s.setConnectionState);
   const setErrorBanner = useLanShareStore((s) => s.setErrorBanner);
   const setSelectedFile = useLanShareStore((s) => s.setSelectedFile);
   const setDocxPreview = useLanShareStore((s) => s.setDocxPreview);
-  const setIsDirty = useLanShareStore((s) => s.setIsDirty);
-  const setEditorText = useLanShareStore((s) => s.setEditorText);
   const setIsSaving = useLanShareStore((s) => s.setIsSaving);
   const setIsDiscovering = useLanShareStore((s) => s.setIsDiscovering);
   const setIsCreatingWorkspace = useLanShareStore((s) => s.setIsCreatingWorkspace);
+  const setSharePermission = useLanShareStore((s) => s.setSharePermission);
   const resetPreviewState = useLanShareStore((s) => s.resetPreviewState);
   const setStreamMeta = useLanShareStore((s) => s.setStreamMeta);
   const setStreamState = useLanShareStore((s) => s.setStreamState);
@@ -64,7 +70,7 @@ function App() {
   const handleCreateWorkspace = async () => {
     if (!api || !bridgeReady) return;
     setIsCreatingWorkspace(true);
-    const response = await api.createWorkspace({ workspaceName, port: 7788 });
+    const response = await api.createWorkspace({ workspaceName, port: 7788, permission: sharePermission });
     if (response?.ok) {
       setStatus(`Sharing ${response.workspaceName}`);
       setSessionCode(response.sessionCode ?? "");
@@ -81,7 +87,12 @@ function App() {
     await api.stopSession();
     setStatus("Stopped");
     setHostFiles([]);
+    setPendingJoins([]);
+    setConnectedClients([]);
+    setClientFiles([]);
+    setConnectionState("disconnected");
     setSessionCode("");
+    resetPreviewState();
   };
 
   const handleJoinWorkspace = async (workspace: DiscoveryWorkspace) => {
@@ -130,9 +141,24 @@ function App() {
     if (!api) return;
     await api.disconnectClient();
     setConnectionState("disconnected");
+    setClientFiles([]);
+    setConnectedClients([]);
+    setPendingJoins([]);
     resetPreviewState();
     setScreen("join");
   };
+
+  const ensureDiscoveryRunning = async () => {
+    if (!api || !bridgeReady || isDiscovering) return;
+    await api.startDiscovery();
+    setIsDiscovering(true);
+  };
+
+  useEffect(() => {
+    if (currentScreen === "home") {
+      void ensureDiscoveryRunning();
+    }
+  }, [currentScreen]);
 
   return (
     <main className="layout professional">
@@ -142,7 +168,13 @@ function App() {
       </header>
 
       {currentScreen === "home" ? (
-        <HomeScreen discoveredCount={discovered.length} onShare={() => setScreen("share")} onJoin={() => setScreen("join")} />
+        <HomeScreen
+          discovered={discovered}
+          isDiscovering={isDiscovering}
+          onStartDiscovery={ensureDiscoveryRunning}
+          onShare={() => setScreen("share")}
+          onJoin={() => setScreen("join")}
+        />
       ) : null}
 
       {currentScreen === "share" ? (
@@ -154,9 +186,11 @@ function App() {
           pendingJoins={pendingJoins}
           connectedClients={connectedClients}
           isCreatingWorkspace={isCreatingWorkspace}
+          sharePermission={sharePermission}
           bridgeReady={bridgeReady}
           onWorkspaceNameChange={setWorkspaceName}
           onCreateWorkspace={handleCreateWorkspace}
+          onSharePermissionChange={setSharePermission}
           onStopSession={handleStopSession}
           onApproveJoin={async (requestId) => {
             await api?.approveJoin(requestId);
@@ -177,9 +211,7 @@ function App() {
           bridgeReady={bridgeReady}
           onDismissError={() => setErrorBanner(null)}
           onStartDiscovery={async () => {
-            if (!api || !bridgeReady) return;
-            await api.startDiscovery();
-            setIsDiscovering(true);
+            await ensureDiscoveryRunning();
           }}
           onStopDiscovery={async () => {
             if (!api || !bridgeReady) return;
@@ -205,6 +237,7 @@ function App() {
           selectedFile={selectedFile}
           selectedMimeType={selectedMimeType}
           previewUrl={previewUrl}
+          previewBuffer={previewBuffer}
           previewText={previewText}
           editorText={editorText}
           isDirty={isDirty}
@@ -213,12 +246,14 @@ function App() {
           bridgeReady={bridgeReady}
           streamState={streamState}
           streamMeta={streamMeta}
+          editorReadOnly={editorReadOnly}
+          errorBanner={errorBanner}
+          onDismissError={() => setErrorBanner(null)}
           onBack={() => setScreen("join")}
           onDisconnect={handleDisconnect}
           onOpenFile={handleOpenFile}
           onEditorChange={(value) => {
-            setEditorText(value);
-            setIsDirty(value !== previewText);
+            applyEditorChange(value);
           }}
           onSave={handleSave}
         />

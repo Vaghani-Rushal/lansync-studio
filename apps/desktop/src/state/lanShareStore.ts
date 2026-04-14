@@ -34,11 +34,14 @@ type StoreState = {
   isDirty: boolean;
   isSaving: boolean;
   previewUrl: string | null;
+  previewBuffer: ArrayBuffer | null;
   docxPreview: null | { status: "loading" } | { status: "ready"; html: string } | { status: "error"; message: string };
   isCreatingWorkspace: boolean;
   isDiscovering: boolean;
   streamState: StreamState;
   streamMeta: StreamMeta | null;
+  sharePermission: "VIEW_ONLY" | "VIEW_EDIT";
+  editorReadOnly: boolean;
   setScreen: (screen: Screen) => void;
   setWorkspaceName: (name: string) => void;
   setSessionCode: (code: string) => void;
@@ -58,11 +61,14 @@ type StoreState = {
   setIsDirty: (value: boolean) => void;
   setIsSaving: (value: boolean) => void;
   setPreviewUrl: (url: string | null) => void;
+  setPreviewBuffer: (buffer: ArrayBuffer | null) => void;
   setDocxPreview: (value: StoreState["docxPreview"]) => void;
   setIsCreatingWorkspace: (value: boolean) => void;
   setIsDiscovering: (value: boolean) => void;
   setStreamState: (state: StreamState) => void;
   setStreamMeta: (meta: StreamMeta | null | ((prev: StreamMeta | null) => StreamMeta | null)) => void;
+  setSharePermission: (permission: "VIEW_ONLY" | "VIEW_EDIT") => void;
+  setEditorReadOnly: (value: boolean) => void;
   resetPreviewState: () => void;
 };
 
@@ -86,11 +92,14 @@ export const useLanShareStore = create<StoreState>((set) => ({
   isDirty: false,
   isSaving: false,
   previewUrl: null,
+  previewBuffer: null,
   docxPreview: null,
   isCreatingWorkspace: false,
   isDiscovering: false,
   streamState: "idle",
   streamMeta: null,
+  sharePermission: "VIEW_EDIT",
+  editorReadOnly: false,
   setScreen: (currentScreen) => set({ currentScreen }),
   setWorkspaceName: (workspaceName) => set({ workspaceName }),
   setSessionCode: (sessionCode) => set({ sessionCode }),
@@ -110,6 +119,7 @@ export const useLanShareStore = create<StoreState>((set) => ({
   setIsDirty: (isDirty) => set({ isDirty }),
   setIsSaving: (isSaving) => set({ isSaving }),
   setPreviewUrl: (previewUrl) => set({ previewUrl }),
+  setPreviewBuffer: (previewBuffer) => set({ previewBuffer }),
   setDocxPreview: (docxPreview) => set({ docxPreview }),
   setIsCreatingWorkspace: (isCreatingWorkspace) => set({ isCreatingWorkspace }),
   setIsDiscovering: (isDiscovering) => set({ isDiscovering }),
@@ -118,6 +128,8 @@ export const useLanShareStore = create<StoreState>((set) => ({
     set((state) => ({
       streamMeta: typeof streamMeta === "function" ? streamMeta(state.streamMeta) : streamMeta
     })),
+  setSharePermission: (sharePermission) => set({ sharePermission }),
+  setEditorReadOnly: (editorReadOnly) => set({ editorReadOnly }),
   resetPreviewState: () =>
     set({
       selectedFile: null,
@@ -126,6 +138,7 @@ export const useLanShareStore = create<StoreState>((set) => ({
       editorText: "",
       isDirty: false,
       previewUrl: null,
+      previewBuffer: null,
       docxPreview: null,
       streamState: "idle",
       streamMeta: null
