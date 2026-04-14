@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
   saveFile: (payload) => ipcRenderer.invoke("client:save-file", payload),
   disconnectClient: () => ipcRenderer.invoke("client:disconnect"),
   reconnectClient: () => ipcRenderer.invoke("client:reconnect"),
+  getClientSessionState: () => ipcRenderer.invoke("client:get-session-state"),
 
   // Event listeners
   onWorkspaces: (listener) => {

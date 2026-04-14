@@ -204,39 +204,32 @@ const onWireMessage = async (socket, message) => {
       return;
     }
 
-    const requestId = sessionService.addPendingJoin(
-      {
-        workspaceId,
-        clientId,
-        displayName,
-        correlationId: message.correlationId
-      },
-      socket,
-      (expiredRequestId) => {
-        // timeout → reject
-        try {
-          transportService.send(socket, "JOIN_REJECT", message.correlationId, {
-            reason: "Host did not respond in time",
-            workspaceId
-          });
-          socket.close();
-        } catch {
-          /* no-op */
-        }
-        logger.info({ expiredRequestId }, "Pending join expired");
-        pushHostSnapshot();
-      }
-    );
-
-    // Tell client: we are waiting for host approval
-    transportService.send(socket, "JOIN_PENDING", message.correlationId, {
-      requestId,
+    // Auto-approve with the workspace's default permission (no host popup).
+    const permission = ws.defaultPermission ?? "VIEW_EDIT";
+    const sessionToken = sessionService.autoApproveClient({
       workspaceId,
+      clientId,
+      displayName,
+      socket
+    }, permission);
+
+    transportService.send(socket, "JOIN_ACCEPT", message.correlationId, {
+      sessionToken,
       workspaceName: ws.workspaceName,
-      hostName: identityService?.get()?.displayName ?? app.getName()
+      hostName: identityService?.get()?.displayName ?? app.getName(),
+      workspaceId: ws.workspaceId,
+      sessionCode: ws.sessionCode,
+      permission,
+      capabilities: permissionToCapabilities(permission)
     });
 
-    // Surface to host renderer
+    const entries = await workspaceService.listFiles(ws.workspaceId);
+    transportService.send(socket, "WORKSPACE_SNAPSHOT", randomUUID(), {
+      workspaceId: ws.workspaceId,
+      workspaceName: ws.workspaceName,
+      entries
+    });
+    broadcastClientsUpdate(ws.workspaceId);
     pushHostSnapshot();
     return;
   }
@@ -914,6 +907,17 @@ ipcMain.handle("client:reconnect", async () => {
       onError: () => resolve({ ok: false })
     });
   });
+});
+
+ipcMain.handle("client:get-session-state", async () => {
+  if (activeSessionToken && activeJoinedWorkspaceId && lastJoinedWorkspace && transportService.client) {
+    return {
+      hasActiveSession: true,
+      workspaceId: activeJoinedWorkspaceId,
+      workspace: lastJoinedWorkspace
+    };
+  }
+  return { hasActiveSession: false };
 });
 
 ipcMain.handle("client:disconnect", async () => {

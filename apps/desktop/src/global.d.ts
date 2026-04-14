@@ -62,6 +62,7 @@ declare global {
       saveFile(payload: { relativePath: string; content: string }): Promise<{ ok: boolean; correlationId?: string; error?: string }>;
       disconnectClient(): Promise<{ ok: boolean }>;
       reconnectClient(): Promise<JoinResult>;
+      getClientSessionState(): Promise<{ hasActiveSession: boolean; workspaceId?: string; workspace?: DiscoveryWorkspace }>;
 
       // Listeners
       onWorkspaces(listener: Listener<DiscoveryWorkspace[]>): () => void;

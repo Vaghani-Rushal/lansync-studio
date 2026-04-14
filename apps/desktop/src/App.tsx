@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { DiscoveryWorkspace, FileTreeNode, Permission } from "@pcconnector/shared-types";
 import "./App.css";
 import { useLanShareBridge } from "./hooks/useLanShareBridge";
@@ -7,7 +7,7 @@ import { JoinScreen } from "./screens/JoinScreen";
 import { ShareScreen } from "./screens/ShareScreen";
 import { ViewerScreen } from "./screens/ViewerScreen";
 import { NameSetupScreen } from "./screens/NameSetupScreen";
-import { JoinRequestModal } from "./components/JoinRequestModal";
+
 import { useLanShareStore } from "./state/lanShareStore";
 
 function App() {
@@ -68,20 +68,32 @@ function App() {
 
   const [showEditName, setShowEditName] = useState(false);
 
-  // Load identity on first mount
+  // Load identity on first mount, then check for an active session to restore
   useEffect(() => {
     if (!api || isIdentityLoaded) return;
     void (async () => {
       const res = await api.getIdentity();
       setIdentity(res.identity ?? null);
       setIdentityLoaded(true);
-      if (res.identity) {
-        setScreen("home");
-      } else {
+      if (!res.identity) {
         setScreen("identity");
+        return;
       }
+      // Check if the main process still has an active client session (survives renderer reload)
+      const sessionState = await api.getClientSessionState();
+      if (sessionState.hasActiveSession) {
+        // Reconnect to the existing session
+        setConnectionState("connecting");
+        const reconnect = await api.reconnectClient();
+        if (reconnect.ok) {
+          setConnectionState("connected");
+          setScreen("viewer");
+          return;
+        }
+      }
+      setScreen("home");
     })();
-  }, [api, isIdentityLoaded, setIdentity, setIdentityLoaded, setScreen]);
+  }, [api, isIdentityLoaded, setIdentity, setIdentityLoaded, setScreen, setConnectionState]);
 
   // When navigating to home, ensure discovery is running
   const ensureDiscoveryRunning = async () => {
@@ -156,19 +168,6 @@ function App() {
     if (!res.ok) setErrorBanner(res.error ?? "Failed to remove user");
   };
 
-  // --- Pending join approval handlers ---
-  const handleApproveJoin = async (requestId: string, permission: Permission) => {
-    if (!api) return;
-    const res = await api.approveJoin({ requestId, permission });
-    if (!res.ok) setErrorBanner(res.error ?? "Failed to approve");
-  };
-
-  const handleRejectJoin = async (requestId: string, reason?: string) => {
-    if (!api) return;
-    const res = await api.rejectJoin({ requestId, reason });
-    if (!res.ok) setErrorBanner(res.error ?? "Failed to reject");
-  };
-
   // --- Client-role handlers ---
   const handleJoinWorkspace = async (workspace: DiscoveryWorkspace) => {
     if (!api || !bridgeReady) return;
@@ -234,19 +233,6 @@ function App() {
     clearClientRamState();
     setScreen("join");
   };
-
-  // --- Derived data for modal ---
-  const workspaceNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const ws of hostedWorkspaces) map[ws.workspaceId] = ws.workspaceName;
-    return map;
-  }, [hostedWorkspaces]);
-
-  const defaultPermissionByWorkspaceId = useMemo(() => {
-    const map: Record<string, Permission> = {};
-    for (const ws of hostedWorkspaces) map[ws.workspaceId] = ws.defaultPermission;
-    return map;
-  }, [hostedWorkspaces]);
 
   // --- Rendering ---
   if (!isIdentityLoaded) {
@@ -383,17 +369,6 @@ function App() {
         />
       ) : null}
 
-      {/* Host-side popup for join approvals */}
-      {pendingJoins.length > 0 && hostedWorkspaces.length > 0 ? (
-        <JoinRequestModal
-          key={pendingJoins[0].requestId}
-          pendingJoins={pendingJoins}
-          workspaceNameById={workspaceNameById}
-          defaultPermissionByWorkspaceId={defaultPermissionByWorkspaceId}
-          onApprove={handleApproveJoin}
-          onReject={handleRejectJoin}
-        />
-      ) : null}
     </main>
   );
 }
