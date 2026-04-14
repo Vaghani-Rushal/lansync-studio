@@ -11,7 +11,7 @@ type Props = {
   status: string;
   onNewWorkspaceNameChange: (value: string) => void;
   onNewWorkspacePermissionChange: (permission: Permission) => void;
-  onCreateWorkspace: () => Promise<void>;
+  onCreateWorkspace: (shareMode?: "file" | "folder") => Promise<void>;
   onSelectWorkspace: (workspaceId: string) => void;
   onStopWorkspace: (workspaceId: string) => Promise<void>;
   onUpdateClientPermission: (workspaceId: string, clientId: string, permission: Permission) => Promise<void>;
@@ -104,14 +104,22 @@ export const ShareScreen = ({
               <div className="muted">Default for new joiners</div>
             </button>
           </div>
-          <button
-            className="primary-btn"
-            style={{ marginTop: 12 }}
-            disabled={!bridgeReady || isCreatingWorkspace || newWorkspaceName.trim().length === 0}
-            onClick={onCreateWorkspace}
-          >
-            {isCreatingWorkspace ? "Starting..." : "Pick folder & start sharing"}
-          </button>
+          <div className="row-wrap" style={{ marginTop: 12, gap: 8 }}>
+            <button
+              className="primary-btn"
+              disabled={!bridgeReady || isCreatingWorkspace || newWorkspaceName.trim().length === 0}
+              onClick={() => onCreateWorkspace("folder")}
+            >
+              {isCreatingWorkspace ? "Starting..." : "Pick folder"}
+            </button>
+            <button
+              className="primary-btn"
+              disabled={!bridgeReady || isCreatingWorkspace || newWorkspaceName.trim().length === 0}
+              onClick={() => onCreateWorkspace("file")}
+            >
+              {isCreatingWorkspace ? "Starting..." : "Pick file"}
+            </button>
+          </div>
           <div className="muted">{status}</div>
         </div>
       </div>

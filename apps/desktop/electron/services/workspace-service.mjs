@@ -26,7 +26,8 @@ const textExtensions = new Set([
  *   rootPath: string,
  *   sessionCode: string,
  *   defaultPermission: "VIEW_ONLY" | "VIEW_EDIT",
- *   createdAt: number
+ *   createdAt: number,
+ *   singleFileName?: string | null
  * }} WorkspaceRecord
  */
 
@@ -83,6 +84,13 @@ export class WorkspaceService {
     if (!ws) {
       throw new AppError("WORKSPACE_NOT_FOUND", "Workspace is not active", false, "filesystem");
     }
+    if (ws.singleFileName) {
+      const normalized = this.normalizeRelativePath(relativePath);
+      if (normalized !== ws.singleFileName) {
+        throw new AppError("PATH_TRAVERSAL", "Invalid path requested", false, "filesystem");
+      }
+      return path.join(ws.rootPath, ws.singleFileName);
+    }
     const target = path.resolve(ws.rootPath, relativePath);
     const root = path.resolve(ws.rootPath);
     if (target !== root && !target.startsWith(root + path.sep)) {
@@ -127,6 +135,25 @@ export class WorkspaceService {
   async listFiles(workspaceId) {
     const ws = this.workspaces.get(workspaceId);
     if (!ws) return [];
+
+    if (ws.singleFileName) {
+      const fullPath = path.join(ws.rootPath, ws.singleFileName);
+      try {
+        const stat = await fs.stat(fullPath);
+        return [
+          {
+            id: ws.singleFileName,
+            name: ws.singleFileName,
+            path: ws.singleFileName,
+            isDirectory: false,
+            size: stat.size,
+            mimeType: this.getMimeType(ws.singleFileName)
+          }
+        ];
+      } catch {
+        return [];
+      }
+    }
 
     const walk = async (dir, base = "") => {
       const entries = await fs.readdir(dir, { withFileTypes: true });

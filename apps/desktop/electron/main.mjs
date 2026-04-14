@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
+import { promises as fsPromises } from "node:fs";
 import { randomUUID } from "node:crypto";
 import chokidar from "chokidar";
 import {
@@ -78,7 +79,7 @@ const pushHostSnapshot = () => {
   const workspaces = workspaceService.listWorkspaces().map((ws) => ({
     workspaceId: ws.workspaceId,
     workspaceName: ws.workspaceName,
-    rootPath: ws.rootPath,
+    rootPath: ws.singleFileName ? path.join(ws.rootPath, ws.singleFileName) : ws.rootPath,
     sessionCode: ws.sessionCode,
     defaultPermission: ws.defaultPermission,
     createdAt: ws.createdAt,
@@ -129,14 +130,17 @@ const teardownWorkspaceWatcher = (workspaceId) => {
   crdtService.clearWorkspace(workspaceId);
 };
 
-const setupWorkspaceWatcher = (workspaceId, rootPath) => {
+const setupWorkspaceWatcher = (workspaceId, rootPath, singleFileName = null) => {
   teardownWorkspaceWatcher(workspaceId);
-  const watcher = chokidar.watch(rootPath, { ignoreInitial: true, persistent: true });
+  const watchTarget = singleFileName ? path.join(rootPath, singleFileName) : rootPath;
+  const watcher = chokidar.watch(watchTarget, { ignoreInitial: true, persistent: true });
   const timers = new Map();
   workspaceWatchers.set(workspaceId, { watcher, timers });
 
   watcher.on("change", (absolutePath) => {
-    const relativePath = path.relative(rootPath, absolutePath).split(path.sep).join("/");
+    const relativePath = singleFileName
+      ? singleFileName
+      : path.relative(rootPath, absolutePath).split(path.sep).join("/");
     if (!relativePath || relativePath.startsWith("..")) return;
     const prev = timers.get(relativePath);
     if (prev) clearTimeout(prev);
@@ -464,13 +468,19 @@ ipcMain.handle("identity:set", async (_event, payload) => {
 // ---------------------------------------------------------------------------
 ipcMain.handle("workspace:create", async (_event, payload) => {
   try {
-    const selected = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    const shareMode = payload?.shareMode === "file" ? "file" : "folder";
+    const dialogProperties = shareMode === "file" ? ["openFile"] : ["openDirectory"];
+    const selected = await dialog.showOpenDialog({ properties: dialogProperties });
     if (selected.canceled || selected.filePaths.length === 0) {
       return { ok: false, cancelled: true };
     }
 
-    const rootPath = selected.filePaths[0];
-    const proposedName = (payload?.workspaceName || path.basename(rootPath)).trim();
+    const selectedPath = selected.filePaths[0];
+    const selectedStat = await fsPromises.stat(selectedPath);
+    const isFile = selectedStat.isFile();
+    const rootPath = isFile ? path.dirname(selectedPath) : selectedPath;
+    const singleFileName = isFile ? path.basename(selectedPath) : null;
+    const proposedName = (payload?.workspaceName || path.basename(selectedPath)).trim();
     if (workspaceService.isWorkspaceNameTaken(proposedName)) {
       return { ok: false, error: "A workspace with this name is already being hosted" };
     }
@@ -484,11 +494,12 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
       rootPath,
       sessionCode,
       defaultPermission,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      singleFileName
     });
 
     ensureServerStarted();
-    setupWorkspaceWatcher(workspaceId, rootPath);
+    setupWorkspaceWatcher(workspaceId, rootPath, singleFileName);
 
     discovery.advertiseWorkspace({
       workspaceName: proposedName,
@@ -502,7 +513,7 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
     const record = {
       workspaceId,
       workspaceName: proposedName,
-      rootPath,
+      rootPath: singleFileName ? path.join(rootPath, singleFileName) : rootPath,
       sessionCode,
       defaultPermission,
       createdAt: Date.now(),
@@ -530,6 +541,7 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
 ipcMain.handle("workspace:list", async () => {
   return workspaceService.listWorkspaces().map((ws) => ({
     ...ws,
+    rootPath: ws.singleFileName ? path.join(ws.rootPath, ws.singleFileName) : ws.rootPath,
     clients: sessionService.listConnectedClientsForWorkspace(ws.workspaceId)
   }));
 });
