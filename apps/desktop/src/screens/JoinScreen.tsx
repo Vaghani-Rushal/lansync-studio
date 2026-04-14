@@ -81,21 +81,7 @@ export const JoinScreen = ({
         </button>
         <span className="status-pill">{connectionState}</span>
       </div>
-      <div className="section-title">Or connect to a nearby device ({discoveredCount})</div>
-      {discovered.map((workspace) => (
-        <div className="workspace-row card-surface" key={workspace.workspaceId}>
-          <div>
-            <strong>{workspace.workspaceName}</strong>
-            <p>
-              {workspace.hostName} ({workspace.hostAddress}:{workspace.port})
-            </p>
-            {workspace.sessionCode ? <p className="muted">{workspace.sessionCode}</p> : null}
-          </div>
-          <button className="primary-btn" disabled={!bridgeReady} onClick={() => onJoinWorkspace(workspace)}>
-            Join
-          </button>
-        </div>
-      ))}
+      <div className="section-title">Nearby hosts detected: {discoveredCount}</div>
     </section>
   );
 };
