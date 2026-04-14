@@ -3,28 +3,97 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { AppError } from "./errors.mjs";
 
-const textExtensions = new Set([".txt", ".md", ".js", ".ts", ".tsx", ".json", ".css", ".html", ".xml", ".yml", ".yaml"]);
+const textExtensions = new Set([
+  ".txt",
+  ".md",
+  ".js",
+  ".ts",
+  ".tsx",
+  ".json",
+  ".css",
+  ".html",
+  ".xml",
+  ".yml",
+  ".yaml",
+  ".env",
+  ".gitignore"
+]);
+
+/**
+ * @typedef {{
+ *   workspaceId: string,
+ *   workspaceName: string,
+ *   rootPath: string,
+ *   sessionCode: string,
+ *   defaultPermission: "VIEW_ONLY" | "VIEW_EDIT",
+ *   createdAt: number,
+ *   singleFileName?: string | null
+ * }} WorkspaceRecord
+ */
 
 export class WorkspaceService {
   constructor() {
-    this.workspace = null;
+    /** @type {Map<string, WorkspaceRecord>} */
+    this.workspaces = new Map();
   }
 
-  setWorkspace(rootPath, workspaceId, workspaceName) {
-    this.workspace = { rootPath, workspaceId, workspaceName };
+  /**
+   * @param {WorkspaceRecord} record
+   */
+  addWorkspace(record) {
+    this.workspaces.set(record.workspaceId, record);
   }
 
-  getWorkspace() {
-    return this.workspace;
+  removeWorkspace(workspaceId) {
+    this.workspaces.delete(workspaceId);
   }
 
-  ensureInWorkspace(relativePath) {
-    if (!this.workspace) {
-      throw new AppError("WORKSPACE_NOT_SET", "Workspace is not active", false, "filesystem");
+  hasWorkspace(workspaceId) {
+    return this.workspaces.has(workspaceId);
+  }
+
+  getWorkspace(workspaceId) {
+    return this.workspaces.get(workspaceId) ?? null;
+  }
+
+  listWorkspaces() {
+    return Array.from(this.workspaces.values());
+  }
+
+  isWorkspaceNameTaken(workspaceName) {
+    const normalized = workspaceName.trim().toLowerCase();
+    for (const ws of this.workspaces.values()) {
+      if (ws.workspaceName.trim().toLowerCase() === normalized) return true;
     }
+    return false;
+  }
 
-    const target = path.resolve(this.workspace.rootPath, relativePath);
-    if (!target.startsWith(path.resolve(this.workspace.rootPath))) {
+  isSessionCodeInUse(sessionCode) {
+    for (const ws of this.workspaces.values()) {
+      if (ws.sessionCode === sessionCode) return true;
+    }
+    return false;
+  }
+
+  /**
+   * @param {string} workspaceId
+   * @param {string} relativePath
+   */
+  ensureInWorkspace(workspaceId, relativePath) {
+    const ws = this.workspaces.get(workspaceId);
+    if (!ws) {
+      throw new AppError("WORKSPACE_NOT_FOUND", "Workspace is not active", false, "filesystem");
+    }
+    if (ws.singleFileName) {
+      const normalized = this.normalizeRelativePath(relativePath);
+      if (normalized !== ws.singleFileName) {
+        throw new AppError("PATH_TRAVERSAL", "Invalid path requested", false, "filesystem");
+      }
+      return path.join(ws.rootPath, ws.singleFileName);
+    }
+    const target = path.resolve(ws.rootPath, relativePath);
+    const root = path.resolve(ws.rootPath);
+    if (target !== root && !target.startsWith(root + path.sep)) {
       throw new AppError("PATH_TRAVERSAL", "Invalid path requested", false, "filesystem");
     }
     return target;
@@ -63,9 +132,27 @@ export class WorkspaceService {
     return this.getMimeType(relativePath) !== "text/plain";
   }
 
-  async listFiles() {
-    if (!this.workspace) {
-      return [];
+  async listFiles(workspaceId) {
+    const ws = this.workspaces.get(workspaceId);
+    if (!ws) return [];
+
+    if (ws.singleFileName) {
+      const fullPath = path.join(ws.rootPath, ws.singleFileName);
+      try {
+        const stat = await fs.stat(fullPath);
+        return [
+          {
+            id: ws.singleFileName,
+            name: ws.singleFileName,
+            path: ws.singleFileName,
+            isDirectory: false,
+            size: stat.size,
+            mimeType: this.getMimeType(ws.singleFileName)
+          }
+        ];
+      } catch {
+        return [];
+      }
     }
 
     const walk = async (dir, base = "") => {
@@ -99,16 +186,16 @@ export class WorkspaceService {
       return result;
     };
 
-    return walk(this.workspace.rootPath);
+    return walk(ws.rootPath);
   }
 
-  createFileStream(relativePath) {
-    const fullPath = this.ensureInWorkspace(relativePath);
+  createFileStream(workspaceId, relativePath) {
+    const fullPath = this.ensureInWorkspace(workspaceId, relativePath);
     return createReadStream(fullPath, { highWaterMark: 64 * 1024 });
   }
 
-  async getFileMeta(relativePath) {
-    const fullPath = this.ensureInWorkspace(relativePath);
+  async getFileMeta(workspaceId, relativePath) {
+    const fullPath = this.ensureInWorkspace(workspaceId, relativePath);
     const stat = await fs.stat(fullPath);
     return {
       relativePath,
@@ -117,8 +204,8 @@ export class WorkspaceService {
     };
   }
 
-  async writeTextFile(relativePath, content) {
-    const fullPath = this.ensureInWorkspace(relativePath);
+  async writeTextFile(workspaceId, relativePath, content) {
+    const fullPath = this.ensureInWorkspace(workspaceId, relativePath);
     if (this.isBinary(relativePath)) {
       throw new AppError("UNSUPPORTED_EDIT_TYPE", "Editing is allowed only for text/code files", false, "filesystem", {
         relativePath
@@ -128,8 +215,8 @@ export class WorkspaceService {
     return { ok: true };
   }
 
-  async readTextFile(relativePath) {
-    const fullPath = this.ensureInWorkspace(relativePath);
+  async readTextFile(workspaceId, relativePath) {
+    const fullPath = this.ensureInWorkspace(workspaceId, relativePath);
     if (this.isBinary(relativePath)) {
       throw new AppError("UNSUPPORTED_EDIT_TYPE", "Reading as text is allowed only for text/code files", false, "filesystem", {
         relativePath

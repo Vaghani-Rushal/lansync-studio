@@ -1,3 +1,12 @@
+export type Permission = "VIEW_ONLY" | "VIEW_EDIT";
+
+export type UserIdentity = {
+  userId: string;
+  displayName: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type DiscoveryWorkspace = {
   workspaceId: string;
   workspaceName: string;
@@ -11,20 +20,38 @@ export type DiscoveryWorkspace = {
 };
 
 export type JoinRequest = {
-  deviceName: string;
+  displayName: string;
   clientId: string;
+  workspaceId: string;
+  sessionCode: string;
 };
 
-export type PendingJoin = JoinRequest & {
+export type PendingJoin = {
   requestId: string;
+  workspaceId: string;
+  workspaceName: string;
+  clientId: string;
+  displayName: string;
   requestedAt: number;
 };
 
 export type ConnectedClient = {
+  workspaceId: string;
   clientId: string;
-  deviceName: string;
+  displayName: string;
   connectedAt: number;
-  capabilities: string[];
+  permission: Permission;
+};
+
+export type HostedWorkspace = {
+  workspaceId: string;
+  workspaceName: string;
+  rootPath: string;
+  sessionCode: string;
+  defaultPermission: Permission;
+  createdAt: number;
+  fileEntries: FileTreeNode[];
+  clients: ConnectedClient[];
 };
 
 export type FileTreeNode = {

@@ -1,7 +1,14 @@
 import { create } from "zustand";
-import type { ConnectedClient, DiscoveryWorkspace, FileTreeNode, PendingJoin } from "@pcconnector/shared-types";
+import type {
+  DiscoveryWorkspace,
+  FileTreeNode,
+  HostedWorkspace,
+  PendingJoin,
+  Permission,
+  UserIdentity
+} from "@pcconnector/shared-types";
 
-type Screen = "home" | "share" | "join" | "viewer";
+type Screen = "identity" | "home" | "share" | "join" | "viewer";
 type StreamState = "idle" | "started" | "progress" | "completed" | "failed";
 
 export type StreamMeta = {
@@ -15,16 +22,34 @@ export type StreamMeta = {
 };
 
 type StoreState = {
+  // Identity
+  identity: UserIdentity | null;
+  isIdentityLoaded: boolean;
+
+  // Navigation
   currentScreen: Screen;
-  workspaceName: string;
-  sessionCode: string;
   status: string;
-  hostFiles: FileTreeNode[];
-  clientFiles: FileTreeNode[];
-  discovered: DiscoveryWorkspace[];
+
+  // Hosting (host role)
+  hostedWorkspaces: HostedWorkspace[];
+  activeHostWorkspaceId: string | null;
   pendingJoins: PendingJoin[];
-  connectedClients: ConnectedClient[];
-  connectionState: "disconnected" | "connecting" | "awaiting_approval" | "connected";
+  newWorkspaceName: string;
+  newWorkspacePermission: Permission;
+  isCreatingWorkspace: boolean;
+
+  // Discovery + client role
+  discovered: DiscoveryWorkspace[];
+  isDiscovering: boolean;
+  connectionState: "disconnected" | "connecting" | "awaiting_approval" | "connected" | "rejected";
+  joinedWorkspaceId: string | null;
+  joinedWorkspaceName: string;
+  joinRejectReason: string | null;
+  clientPermission: Permission;
+  editorReadOnly: boolean;
+
+  // Client file view
+  clientFiles: FileTreeNode[];
   clientMessages: string[];
   errorBanner: string | null;
   selectedFile: string | null;
@@ -36,22 +61,28 @@ type StoreState = {
   previewUrl: string | null;
   previewBuffer: ArrayBuffer | null;
   docxPreview: null | { status: "loading" } | { status: "ready"; html: string } | { status: "error"; message: string };
-  isCreatingWorkspace: boolean;
-  isDiscovering: boolean;
   streamState: StreamState;
   streamMeta: StreamMeta | null;
-  sharePermission: "VIEW_ONLY" | "VIEW_EDIT";
-  editorReadOnly: boolean;
+
+  // Actions
+  setIdentity: (identity: UserIdentity | null) => void;
+  setIdentityLoaded: (value: boolean) => void;
   setScreen: (screen: Screen) => void;
-  setWorkspaceName: (name: string) => void;
-  setSessionCode: (code: string) => void;
   setStatus: (status: string) => void;
-  setHostFiles: (files: FileTreeNode[]) => void;
-  setClientFiles: (files: FileTreeNode[]) => void;
-  setDiscovered: (workspaces: DiscoveryWorkspace[]) => void;
+  setHostedWorkspaces: (workspaces: HostedWorkspace[]) => void;
+  setActiveHostWorkspaceId: (id: string | null) => void;
   setPendingJoins: (joins: PendingJoin[]) => void;
-  setConnectedClients: (clients: ConnectedClient[]) => void;
+  setNewWorkspaceName: (name: string) => void;
+  setNewWorkspacePermission: (permission: Permission) => void;
+  setIsCreatingWorkspace: (value: boolean) => void;
+  setDiscovered: (workspaces: DiscoveryWorkspace[]) => void;
+  setIsDiscovering: (value: boolean) => void;
   setConnectionState: (state: StoreState["connectionState"]) => void;
+  setJoinedWorkspace: (id: string | null, name?: string) => void;
+  setJoinRejectReason: (reason: string | null) => void;
+  setClientPermission: (permission: Permission) => void;
+  setEditorReadOnly: (value: boolean) => void;
+  setClientFiles: (files: FileTreeNode[]) => void;
   pushClientMessage: (message: string) => void;
   setErrorBanner: (msg: string | null) => void;
   setSelectedFile: (path: string | null) => void;
@@ -63,26 +94,36 @@ type StoreState = {
   setPreviewUrl: (url: string | null) => void;
   setPreviewBuffer: (buffer: ArrayBuffer | null) => void;
   setDocxPreview: (value: StoreState["docxPreview"]) => void;
-  setIsCreatingWorkspace: (value: boolean) => void;
-  setIsDiscovering: (value: boolean) => void;
   setStreamState: (state: StreamState) => void;
   setStreamMeta: (meta: StreamMeta | null | ((prev: StreamMeta | null) => StreamMeta | null)) => void;
-  setSharePermission: (permission: "VIEW_ONLY" | "VIEW_EDIT") => void;
-  setEditorReadOnly: (value: boolean) => void;
   resetPreviewState: () => void;
+  resetClientSessionState: () => void;
 };
 
 export const useLanShareStore = create<StoreState>((set) => ({
-  currentScreen: "home",
-  workspaceName: "MyWorkspace",
-  sessionCode: "",
+  identity: null,
+  isIdentityLoaded: false,
+
+  currentScreen: "identity",
   status: "Idle",
-  hostFiles: [],
-  clientFiles: [],
-  discovered: [],
+
+  hostedWorkspaces: [],
+  activeHostWorkspaceId: null,
   pendingJoins: [],
-  connectedClients: [],
+  newWorkspaceName: "MyWorkspace",
+  newWorkspacePermission: "VIEW_EDIT",
+  isCreatingWorkspace: false,
+
+  discovered: [],
+  isDiscovering: false,
   connectionState: "disconnected",
+  joinedWorkspaceId: null,
+  joinedWorkspaceName: "",
+  joinRejectReason: null,
+  clientPermission: "VIEW_ONLY",
+  editorReadOnly: true,
+
+  clientFiles: [],
   clientMessages: [],
   errorBanner: null,
   selectedFile: null,
@@ -94,23 +135,41 @@ export const useLanShareStore = create<StoreState>((set) => ({
   previewUrl: null,
   previewBuffer: null,
   docxPreview: null,
-  isCreatingWorkspace: false,
-  isDiscovering: false,
   streamState: "idle",
   streamMeta: null,
-  sharePermission: "VIEW_EDIT",
-  editorReadOnly: false,
+
+  setIdentity: (identity) => set({ identity }),
+  setIdentityLoaded: (isIdentityLoaded) => set({ isIdentityLoaded }),
   setScreen: (currentScreen) => set({ currentScreen }),
-  setWorkspaceName: (workspaceName) => set({ workspaceName }),
-  setSessionCode: (sessionCode) => set({ sessionCode }),
   setStatus: (status) => set({ status }),
-  setHostFiles: (hostFiles) => set({ hostFiles }),
-  setClientFiles: (clientFiles) => set({ clientFiles }),
-  setDiscovered: (discovered) => set({ discovered }),
+  setHostedWorkspaces: (hostedWorkspaces) =>
+    set((state) => ({
+      hostedWorkspaces,
+      activeHostWorkspaceId:
+        state.activeHostWorkspaceId && hostedWorkspaces.some((w) => w.workspaceId === state.activeHostWorkspaceId)
+          ? state.activeHostWorkspaceId
+          : hostedWorkspaces[0]?.workspaceId ?? null
+    })),
+  setActiveHostWorkspaceId: (activeHostWorkspaceId) => set({ activeHostWorkspaceId }),
   setPendingJoins: (pendingJoins) => set({ pendingJoins }),
-  setConnectedClients: (connectedClients) => set({ connectedClients }),
+  setNewWorkspaceName: (newWorkspaceName) => set({ newWorkspaceName }),
+  setNewWorkspacePermission: (newWorkspacePermission) => set({ newWorkspacePermission }),
+  setIsCreatingWorkspace: (isCreatingWorkspace) => set({ isCreatingWorkspace }),
+  setDiscovered: (discovered) => set({ discovered }),
+  setIsDiscovering: (isDiscovering) => set({ isDiscovering }),
   setConnectionState: (connectionState) => set({ connectionState }),
-  pushClientMessage: (message) => set((state) => ({ clientMessages: [message, ...state.clientMessages].slice(0, 12) })),
+  setJoinedWorkspace: (joinedWorkspaceId, joinedWorkspaceName) =>
+    set({
+      joinedWorkspaceId,
+      joinedWorkspaceName: joinedWorkspaceName ?? ""
+    }),
+  setJoinRejectReason: (joinRejectReason) => set({ joinRejectReason }),
+  setClientPermission: (clientPermission) =>
+    set({ clientPermission, editorReadOnly: clientPermission === "VIEW_ONLY" }),
+  setEditorReadOnly: (editorReadOnly) => set({ editorReadOnly }),
+  setClientFiles: (clientFiles) => set({ clientFiles }),
+  pushClientMessage: (message) =>
+    set((state) => ({ clientMessages: [message, ...state.clientMessages].slice(0, 12) })),
   setErrorBanner: (errorBanner) => set({ errorBanner }),
   setSelectedFile: (selectedFile) => set({ selectedFile }),
   setSelectedMimeType: (selectedMimeType) => set({ selectedMimeType }),
@@ -121,17 +180,33 @@ export const useLanShareStore = create<StoreState>((set) => ({
   setPreviewUrl: (previewUrl) => set({ previewUrl }),
   setPreviewBuffer: (previewBuffer) => set({ previewBuffer }),
   setDocxPreview: (docxPreview) => set({ docxPreview }),
-  setIsCreatingWorkspace: (isCreatingWorkspace) => set({ isCreatingWorkspace }),
-  setIsDiscovering: (isDiscovering) => set({ isDiscovering }),
   setStreamState: (streamState) => set({ streamState }),
   setStreamMeta: (streamMeta) =>
     set((state) => ({
       streamMeta: typeof streamMeta === "function" ? streamMeta(state.streamMeta) : streamMeta
     })),
-  setSharePermission: (sharePermission) => set({ sharePermission }),
-  setEditorReadOnly: (editorReadOnly) => set({ editorReadOnly }),
   resetPreviewState: () =>
     set({
+      selectedFile: null,
+      selectedMimeType: null,
+      previewText: "",
+      editorText: "",
+      isDirty: false,
+      previewUrl: null,
+      previewBuffer: null,
+      docxPreview: null,
+      streamState: "idle",
+      streamMeta: null
+    }),
+  resetClientSessionState: () =>
+    set({
+      connectionState: "disconnected",
+      joinedWorkspaceId: null,
+      joinedWorkspaceName: "",
+      joinRejectReason: null,
+      clientFiles: [],
+      clientPermission: "VIEW_ONLY",
+      editorReadOnly: true,
       selectedFile: null,
       selectedMimeType: null,
       previewText: "",

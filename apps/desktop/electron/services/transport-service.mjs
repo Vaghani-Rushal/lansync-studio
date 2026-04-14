@@ -25,9 +25,12 @@ export class TransportService {
 
   startServer(port, handlers) {
     if (this.server) {
-      this.server.close();
-      this.server = null;
+      // Already running — just update the message handlers so multiple
+      // workspaces can share the same server.
+      this.handlers = handlers;
+      return this.server;
     }
+    this.handlers = handlers;
     this.server = new WebSocketServer({ port });
     this.server.on("connection", (socket) => {
       this.connections.add(socket);
@@ -35,17 +38,48 @@ export class TransportService {
         try {
           const incoming = JSON.parse(buffer.toString());
           const parsed = wireMessageSchema.parse(incoming);
-          await handlers.onMessage(socket, parsed);
+          await this.handlers?.onMessage?.(socket, parsed);
         } catch (error) {
           logger.error({ error }, "Invalid message");
           this.sendError(socket, error);
         }
       });
-      socket.on("close", () => this.connections.delete(socket));
-      socket.on("close", () => this.sessionService.removeSocket(socket));
-      socket.on("close", () => handlers.onConnectionClosed?.());
+      socket.on("close", () => {
+        this.connections.delete(socket);
+        const removed = this.sessionService.removeSocket(socket);
+        this.handlers?.onConnectionClosed?.(socket, removed);
+      });
     });
     return this.server;
+  }
+
+  stopServer() {
+    try {
+      this.server?.close();
+    } catch {
+      /* no-op */
+    }
+    this.server = null;
+    this.handlers = null;
+    for (const socket of this.connections) {
+      try {
+        socket.close();
+      } catch {
+        /* no-op */
+      }
+    }
+    this.connections.clear();
+  }
+
+  broadcastToWorkspace(workspaceId, type, correlationId, payload) {
+    const sessions = this.sessionService.listConnectedSessionsForWorkspace(workspaceId);
+    for (const session of sessions) {
+      try {
+        this.send(session.socket, type, correlationId, payload);
+      } catch {
+        /* no-op */
+      }
+    }
   }
 
   connectClient(url, handlers) {
@@ -174,11 +208,11 @@ export class TransportService {
     return true;
   }
 
-  async streamFile(socket, relativePath, correlationId, ownerClientId) {
+  async streamFile(socket, workspaceId, relativePath, correlationId, ownerClientId) {
     const transferId = randomUUID();
     try {
-      const stream = this.workspaceService.createFileStream(relativePath);
-      const fileMeta = await this.workspaceService.getFileMeta(relativePath);
+      const stream = this.workspaceService.createFileStream(workspaceId, relativePath);
+      const fileMeta = await this.workspaceService.getFileMeta(workspaceId, relativePath);
       const isBinary = this.workspaceService.isBinary(relativePath);
       const mimeType = this.workspaceService.getMimeType(relativePath);
       const hash = createHash("sha256");

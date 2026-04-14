@@ -10,19 +10,26 @@ export const pruneStaleWorkspaces = (workspaces, now, ttlMs) => {
   return next;
 };
 
+/**
+ * Discovery service now supports advertising multiple workspaces simultaneously
+ * from a single host. Each workspace gets its own Bonjour publication keyed by
+ * workspaceId. A single shared WebSocket port is used across all workspaces.
+ */
 export class DiscoveryService {
   constructor() {
     this.bonjour = new Bonjour();
     this.browser = null;
-    this.advertisement = null;
+    /** @type {Map<string, any>} workspaceId -> bonjour service */
+    this.advertisements = new Map();
+    /** @type {Map<string, any>} workspaceId -> DiscoveryWorkspace */
     this.workspaces = new Map();
     this.pruneInterval = null;
   }
 
   advertiseWorkspace({ workspaceName, hostName, workspaceId, sessionCode, port }) {
-    this.stopAdvertising();
-    this.advertisement = this.bonjour.publish({
-      name: `${hostName} / ${workspaceName}`,
+    this.stopAdvertising(workspaceId);
+    const advertisement = this.bonjour.publish({
+      name: `${hostName} / ${workspaceName} / ${workspaceId.slice(0, 8)}`,
       type: "pcconnect",
       protocol: "tcp",
       port,
@@ -32,18 +39,38 @@ export class DiscoveryService {
         hostName,
         sessionCode,
         appVersion: "0.1.0",
-        mode: "open_with_host_approval"
+        mode: "host_approval_required"
       }
     });
-
+    this.advertisements.set(workspaceId, advertisement);
     return workspaceId;
   }
 
-  stopAdvertising() {
-    if (this.advertisement) {
-      this.advertisement.stop();
-      this.advertisement = null;
+  /**
+   * @param {string} [workspaceId] If provided, stop only that workspace's advertisement.
+   * Otherwise stop all.
+   */
+  stopAdvertising(workspaceId) {
+    if (workspaceId) {
+      const ad = this.advertisements.get(workspaceId);
+      if (ad) {
+        try {
+          ad.stop();
+        } catch {
+          /* no-op */
+        }
+        this.advertisements.delete(workspaceId);
+      }
+      return;
     }
+    for (const ad of this.advertisements.values()) {
+      try {
+        ad.stop();
+      } catch {
+        /* no-op */
+      }
+    }
+    this.advertisements.clear();
   }
 
   startBrowsing(onChange) {

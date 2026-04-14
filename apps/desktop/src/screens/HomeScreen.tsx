@@ -1,27 +1,40 @@
-import type { DiscoveryWorkspace } from "@pcconnector/shared-types";
+import type { DiscoveryWorkspace, UserIdentity } from "@pcconnector/shared-types";
 
 type Props = {
+  identity: UserIdentity | null;
   discovered: DiscoveryWorkspace[];
   isDiscovering: boolean;
   onStartDiscovery: () => Promise<void>;
   onShare: () => void;
   onJoin: () => void;
+  onEditName: () => void;
 };
 
-export const HomeScreen = ({ discovered, isDiscovering, onStartDiscovery, onShare, onJoin }: Props) => (
+export const HomeScreen = ({
+  identity,
+  discovered,
+  isDiscovering,
+  onStartDiscovery,
+  onShare,
+  onJoin,
+  onEditName
+}: Props) => (
   <section className="screen ui-shell">
     <div className="brand-block card-surface">
       <div className="brand-icon">L</div>
-      <div>
+      <div style={{ flex: 1 }}>
         <h1>LAN Share</h1>
         <p className="muted">Real-time · Zero cloud · Pure local</p>
       </div>
+      <button className="identity-chip" onClick={onEditName} title="Change your display name">
+        {identity ? `👤 ${identity.displayName}` : "Set name"}
+      </button>
     </div>
 
     <div className="action-grid">
       <button className="action-card" onClick={onShare}>
         <div className="action-title">Share a file</div>
-        <div className="muted">Host a file from your disk</div>
+        <div className="muted">Host one or more workspaces on the LAN</div>
       </button>
       <button className="action-card" onClick={onJoin}>
         <div className="action-title">Join a session</div>
@@ -37,7 +50,9 @@ export const HomeScreen = ({ discovered, isDiscovering, onStartDiscovery, onShar
           <div className="dot-live" />
           <div className="device-meta">
             <div className="device-name">{device.hostName}</div>
-            <div className="muted">{device.hostAddress}</div>
+            <div className="muted">
+              {device.workspaceName} · {device.hostAddress}
+            </div>
           </div>
           <div className="status-pill">{device.sessionCode ? "Sharing" : "Online"}</div>
         </div>

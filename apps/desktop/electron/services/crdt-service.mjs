@@ -1,51 +1,73 @@
-import { TextEncoder } from "node:util";
 import * as Y from "yjs";
 
+/**
+ * CRDT docs are keyed per workspace + relative path so that two workspaces sharing
+ * the same filename don't collide.
+ */
 export class CrdtService {
   constructor(workspaceService) {
     this.workspaceService = workspaceService;
+    /** @type {Map<string, { doc: Y.Doc, text: Y.Text, relativePath: string, workspaceId: string, writing: boolean, dispose?: () => void }>} */
     this.docs = new Map();
   }
 
-  async ensureDoc(relativePath) {
-    const existing = this.docs.get(relativePath);
+  static key(workspaceId, relativePath) {
+    return `${workspaceId}::${relativePath}`;
+  }
+
+  async ensureDoc(workspaceId, relativePath) {
+    const key = CrdtService.key(workspaceId, relativePath);
+    const existing = this.docs.get(key);
     if (existing) return existing;
 
     const doc = new Y.Doc();
     const text = doc.getText("content");
-    const fullPath = this.workspaceService.ensureInWorkspace(relativePath);
-    const initialContent = await this.workspaceService.readTextFile(relativePath).catch(() => "");
+    const initialContent = await this.workspaceService
+      .readTextFile(workspaceId, relativePath)
+      .catch(() => "");
     text.insert(0, initialContent);
-    const stateUpdate = Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
     const entry = {
       doc,
       text,
       relativePath,
-      writing: false,
-      dispose: text.observe(async () => {
-        if (entry.writing) return;
-        entry.writing = true;
-        try {
-          await this.workspaceService.writeTextFile(relativePath, text.toString());
-        } finally {
-          entry.writing = false;
-        }
-      })
+      workspaceId,
+      writing: false
     };
-    this.docs.set(relativePath, entry);
-    return { ...entry, stateUpdate, fullPath };
+    const observer = async () => {
+      if (entry.writing) return;
+      entry.writing = true;
+      try {
+        await this.workspaceService.writeTextFile(workspaceId, relativePath, text.toString());
+      } finally {
+        entry.writing = false;
+      }
+    };
+    text.observe(observer);
+    entry.dispose = () => text.unobserve(observer);
+    this.docs.set(key, entry);
+    return entry;
   }
 
-  async getStateUpdate(relativePath) {
-    const entry = await this.ensureDoc(relativePath);
+  async getStateUpdate(workspaceId, relativePath) {
+    const entry = await this.ensureDoc(workspaceId, relativePath);
     return Buffer.from(Y.encodeStateAsUpdate(entry.doc)).toString("base64");
   }
 
-  async applyUpdate(relativePath, base64Update) {
-    const entry = await this.ensureDoc(relativePath);
+  async applyUpdate(workspaceId, relativePath, base64Update) {
+    const entry = await this.ensureDoc(workspaceId, relativePath);
     const update = Buffer.from(base64Update, "base64");
     Y.applyUpdate(entry.doc, update);
     return Buffer.from(update).toString("base64");
+  }
+
+  clearWorkspace(workspaceId) {
+    for (const [key, entry] of this.docs.entries()) {
+      if (entry.workspaceId === workspaceId) {
+        entry.dispose?.();
+        entry.doc.destroy();
+        this.docs.delete(key);
+      }
+    }
   }
 
   clearAll() {

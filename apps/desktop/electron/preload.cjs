@@ -2,11 +2,31 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("pcConnectorApi", {
   isBridgeReady: () => true,
+
+  // Identity
+  getIdentity: () => ipcRenderer.invoke("identity:get"),
+  setIdentity: (payload) => ipcRenderer.invoke("identity:set", payload),
+
+  // Host / workspaces
   createWorkspace: (payload) => ipcRenderer.invoke("workspace:create", payload),
-  listWorkspaceFiles: () => ipcRenderer.invoke("workspace:list-files"),
+  listHostedWorkspaces: () => ipcRenderer.invoke("workspace:list"),
+  listWorkspaceFiles: (payload) => ipcRenderer.invoke("workspace:list-files", payload),
+  stopWorkspace: (payload) => ipcRenderer.invoke("workspace:stop", payload),
+  stopAllSessions: () => ipcRenderer.invoke("session:stop-all"),
+
+  // Pending joins / approval
+  approveJoin: (payload) => ipcRenderer.invoke("session:approve-join", payload),
+  rejectJoin: (payload) => ipcRenderer.invoke("session:reject-join", payload),
+
+  // Per-client management
+  updateClientPermission: (payload) => ipcRenderer.invoke("session:update-client-permission", payload),
+  kickClient: (payload) => ipcRenderer.invoke("session:kick-client", payload),
+
+  // Discovery
   startDiscovery: () => ipcRenderer.invoke("discovery:start"),
   stopDiscovery: () => ipcRenderer.invoke("discovery:stop"),
-  stopSession: () => ipcRenderer.invoke("session:stop"),
+
+  // Client (joining a remote workspace)
   joinWorkspace: (workspace) => ipcRenderer.invoke("client:join-workspace", workspace),
   openFile: (relativePath) => ipcRenderer.invoke("client:open-file", relativePath),
   crdtInit: (payload) => ipcRenderer.invoke("client:crdt-init", payload),
@@ -18,6 +38,9 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
   saveFile: (payload) => ipcRenderer.invoke("client:save-file", payload),
   disconnectClient: () => ipcRenderer.invoke("client:disconnect"),
   reconnectClient: () => ipcRenderer.invoke("client:reconnect"),
+  getClientSessionState: () => ipcRenderer.invoke("client:get-session-state"),
+
+  // Event listeners
   onWorkspaces: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on("discovery:workspaces", handler);
@@ -33,9 +56,14 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
     ipcRenderer.on("host:status", handler);
     return () => ipcRenderer.removeListener("host:status", handler);
   },
-  onSessionClients: (listener) => {
+  onHostedWorkspaces: (listener) => {
     const handler = (_event, payload) => listener(payload);
-    ipcRenderer.on("session:clients", handler);
-    return () => ipcRenderer.removeListener("session:clients", handler);
+    ipcRenderer.on("host:workspaces", handler);
+    return () => ipcRenderer.removeListener("host:workspaces", handler);
+  },
+  onPendingJoins: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("host:pending-joins", handler);
+    return () => ipcRenderer.removeListener("host:pending-joins", handler);
   }
 });
