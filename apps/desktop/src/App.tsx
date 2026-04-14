@@ -138,7 +138,7 @@ function App() {
     if (response.ok) {
       setStatus(`Sharing ${response.workspace.workspaceName}`);
       setActiveHostWorkspaceId(response.workspace.workspaceId);
-      // Refresh hosted workspaces list
+      setNewWorkspaceName("");
       const list = await api.listHostedWorkspaces();
       setHostedWorkspaces(list);
     } else if (!("cancelled" in response && response.cancelled)) {

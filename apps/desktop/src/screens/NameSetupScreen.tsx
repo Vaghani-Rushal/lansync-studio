@@ -53,25 +53,23 @@ export const NameSetupScreen = ({
         </div>
       </div>
 
-      <div className="step-card card-surface">
-        <div className="step-body">
-          <div className="section-title">Display name</div>
-          <input
-            value={name}
-            autoFocus
-            placeholder="e.g. Alex"
-            maxLength={32}
-            onChange={(event) => {
-              setName(event.target.value);
-              if (error) setError(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void handleSubmit();
-            }}
-          />
-          <div className="muted">2–32 characters. This is the name peers will see.</div>
-          {error ? <div className="error-banner">{error}</div> : null}
-        </div>
+      <div className="card-surface name-form">
+        <div className="section-title">Display name</div>
+        <input
+          value={name}
+          autoFocus
+          placeholder="e.g. Alex"
+          maxLength={32}
+          onChange={(event) => {
+            setName(event.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void handleSubmit();
+          }}
+        />
+        <div className="muted">2–32 characters. This is the name peers will see.</div>
+        {error ? <div className="error-banner">{error}</div> : null}
       </div>
 
       <div className="row-wrap">

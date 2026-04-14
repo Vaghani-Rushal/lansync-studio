@@ -518,6 +518,12 @@ select:focus {
   align-items: start;
 }
 
+.name-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .step-index {
   width: 28px;
   height: 28px;
