@@ -468,9 +468,16 @@ ipcMain.handle("identity:set", async (_event, payload) => {
 // ---------------------------------------------------------------------------
 ipcMain.handle("workspace:create", async (_event, payload) => {
   try {
-    const shareMode = payload?.shareMode === "file" ? "file" : "folder";
-    const dialogProperties = shareMode === "file" ? ["openFile"] : ["openDirectory"];
-    const selected = await dialog.showOpenDialog({ properties: dialogProperties });
+    logger.info("workspace:create dialog opening");
+    const dialogOptions = {
+      title: "Select a file or folder to share",
+      buttonLabel: "Share",
+      properties: ["openFile", "openDirectory", "showHiddenFiles", "treatPackageAsDirectory"]
+    };
+    const selected = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+    logger.info({ canceled: selected.canceled, count: selected.filePaths.length }, "workspace:create dialog result");
     if (selected.canceled || selected.filePaths.length === 0) {
       return { ok: false, cancelled: true };
     }

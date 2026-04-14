@@ -28,7 +28,7 @@ declare global {
       setIdentity(payload: { displayName: string }): Promise<IdentityResponse>;
 
       // Host
-      createWorkspace(payload: { workspaceName: string; defaultPermission: Permission; shareMode?: "file" | "folder" }): Promise<WorkspaceCreateResponse>;
+      createWorkspace(payload: { workspaceName: string; defaultPermission: Permission }): Promise<WorkspaceCreateResponse>;
       listHostedWorkspaces(): Promise<HostedWorkspace[]>;
       listWorkspaceFiles(payload: { workspaceId: string }): Promise<WorkspaceEntry[]>;
       stopWorkspace(payload: { workspaceId: string }): Promise<{ ok: boolean; error?: string }>;

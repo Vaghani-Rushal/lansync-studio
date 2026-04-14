@@ -129,13 +129,12 @@ function App() {
   };
 
   // --- Host handlers ---
-  const handleCreateWorkspace = async (shareMode: "file" | "folder" = "folder") => {
+  const handleCreateWorkspace = async () => {
     if (!api || !bridgeReady) return;
     setIsCreatingWorkspace(true);
     const response = await api.createWorkspace({
       workspaceName: newWorkspaceName,
-      defaultPermission: newWorkspacePermission,
-      shareMode
+      defaultPermission: newWorkspacePermission
     });
     if (response.ok) {
       setStatus(`Sharing ${response.workspace.workspaceName}`);
