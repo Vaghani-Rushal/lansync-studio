@@ -90,6 +90,7 @@ export const useLanShareBridge = () => {
   const pushClientMessage = useLanShareStore((s) => s.pushClientMessage);
   const setSessionCode = useLanShareStore((s) => s.setSessionCode);
   const setEditorReadOnly = useLanShareStore((s) => s.setEditorReadOnly);
+  const resetPreviewState = useLanShareStore((s) => s.resetPreviewState);
 
   const ensureCrdtDoc = (relativePath: string, initialText = "") => {
     const existing = crdtDocsRef.current.get(relativePath);
@@ -124,6 +125,21 @@ export const useLanShareBridge = () => {
     entry.applyingRemote = false;
     setEditorText(entry.text.toString());
     setIsDirty(entry.text.toString() !== useLanShareStore.getState().previewText);
+  };
+
+  const clearClientRamState = () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    chunksRef.current = {};
+    bytesRef.current = {};
+    failedTransfersRef.current.clear();
+    for (const entry of crdtDocsRef.current.values()) {
+      entry.doc.destroy();
+    }
+    crdtDocsRef.current.clear();
+    resetPreviewState();
   };
 
   useEffect(() => {
@@ -187,6 +203,7 @@ export const useLanShareBridge = () => {
       if (message.type === "SESSION_STOP") {
         setConnectionState("disconnected");
         setErrorBanner("Session stopped by host.");
+        clearClientRamState();
       }
       if (message.type === "RECONNECTING") {
         setConnectionState("connecting");
@@ -371,15 +388,11 @@ export const useLanShareBridge = () => {
     });
 
     return () => {
-      revokeBlob();
+      clearClientRamState();
       offWorkspaces();
       offClients();
       offMessages();
       offHostStatus();
-      for (const entry of crdtDocsRef.current.values()) {
-        entry.doc.destroy();
-      }
-      crdtDocsRef.current.clear();
     };
   }, [
     api,
@@ -398,11 +411,12 @@ export const useLanShareBridge = () => {
     setSelectedMimeType,
     setSessionCode,
     setEditorReadOnly,
+    resetPreviewState,
     setStatus,
     setStreamMeta,
     setStreamState,
     setPreviewBuffer
   ]);
 
-  return { bridgeReady, api, applyEditorChange };
+  return { bridgeReady, api, applyEditorChange, clearClientRamState };
 };

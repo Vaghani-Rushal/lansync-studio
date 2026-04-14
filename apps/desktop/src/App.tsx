@@ -19,7 +19,7 @@ const buildTree = (entries: Array<{ path: string; name: string; isDirectory: boo
   }));
 
 function App() {
-  const { api, bridgeReady, applyEditorChange } = useLanShareBridge();
+  const { api, bridgeReady, applyEditorChange, clearClientRamState } = useLanShareBridge();
   const currentScreen = useLanShareStore((s) => s.currentScreen);
   const workspaceName = useLanShareStore((s) => s.workspaceName);
   const sessionCode = useLanShareStore((s) => s.sessionCode);
@@ -143,7 +143,7 @@ function App() {
     setClientFiles([]);
     setConnectedClients([]);
     setPendingJoins([]);
-    resetPreviewState();
+    clearClientRamState();
     setScreen("join");
   };
 
