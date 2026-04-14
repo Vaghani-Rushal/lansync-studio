@@ -204,32 +204,34 @@ const onWireMessage = async (socket, message) => {
       return;
     }
 
-    // Auto-approve with the workspace's default permission (no host popup).
-    const permission = ws.defaultPermission ?? "VIEW_EDIT";
-    const sessionToken = sessionService.autoApproveClient({
-      workspaceId,
-      clientId,
-      displayName,
-      socket
-    }, permission);
+    // Register a pending join; host must explicitly approve via the UI.
+    sessionService.addPendingJoin(
+      {
+        workspaceId,
+        clientId,
+        displayName,
+        correlationId: message.correlationId
+      },
+      socket,
+      (expiredRequestId) => {
+        try {
+          transportService.send(socket, "JOIN_REJECT", message.correlationId, {
+            reason: "Request timed out",
+            workspaceId
+          });
+          socket.close();
+        } catch {
+          /* no-op */
+        }
+        logger.info({ expiredRequestId }, "Pending join expired");
+        pushHostSnapshot();
+      }
+    );
 
-    transportService.send(socket, "JOIN_ACCEPT", message.correlationId, {
-      sessionToken,
-      workspaceName: ws.workspaceName,
-      hostName: identityService?.get()?.displayName ?? app.getName(),
+    transportService.send(socket, "JOIN_PENDING", message.correlationId, {
       workspaceId: ws.workspaceId,
-      sessionCode: ws.sessionCode,
-      permission,
-      capabilities: permissionToCapabilities(permission)
+      workspaceName: ws.workspaceName
     });
-
-    const entries = await workspaceService.listFiles(ws.workspaceId);
-    transportService.send(socket, "WORKSPACE_SNAPSHOT", randomUUID(), {
-      workspaceId: ws.workspaceId,
-      workspaceName: ws.workspaceName,
-      entries
-    });
-    broadcastClientsUpdate(ws.workspaceId);
     pushHostSnapshot();
     return;
   }
@@ -924,6 +926,7 @@ ipcMain.handle("client:disconnect", async () => {
   transportService.disconnectClient();
   activeSessionToken = null;
   activeJoinedWorkspaceId = null;
+  lastJoinedWorkspace = null;
   mainWindow?.webContents.send("host:status", {
     state: "client-disconnected",
     message: "Disconnected from session."

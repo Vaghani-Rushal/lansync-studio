@@ -127,32 +127,6 @@ export class SessionService {
     return { record, client };
   }
 
-  /**
-   * Directly approve a client without going through the pending-join queue.
-   * @param {{ workspaceId: string, clientId: string, displayName: string, socket: any }} params
-   * @param {Permission} permission
-   * @returns {string} sessionToken
-   */
-  autoApproveClient(params, permission) {
-    const sessionToken = randomBytes(24).toString("hex");
-    const tokenExpiresAt = Date.now() + TOKEN_TTL_MS;
-    /** @type {ClientRecord} */
-    const client = {
-      workspaceId: params.workspaceId,
-      clientId: params.clientId,
-      displayName: params.displayName,
-      sessionToken,
-      tokenExpiresAt,
-      socket: params.socket,
-      connectedAt: Date.now(),
-      permission
-    };
-    const key = SessionService.clientKey(params.workspaceId, params.clientId);
-    this.clients.set(key, client);
-    this.tokenIndex.set(sessionToken, key);
-    return sessionToken;
-  }
-
   /** @param {string} requestId */
   rejectJoin(requestId) {
     const record = this.pendingJoins.get(requestId);

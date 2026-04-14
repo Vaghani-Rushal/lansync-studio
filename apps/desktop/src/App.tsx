@@ -7,6 +7,7 @@ import { JoinScreen } from "./screens/JoinScreen";
 import { ShareScreen } from "./screens/ShareScreen";
 import { ViewerScreen } from "./screens/ViewerScreen";
 import { NameSetupScreen } from "./screens/NameSetupScreen";
+import { JoinRequestModal } from "./components/JoinRequestModal";
 
 import { useLanShareStore } from "./state/lanShareStore";
 
@@ -166,6 +167,18 @@ function App() {
     if (!api) return;
     const res = await api.kickClient({ workspaceId, clientId });
     if (!res.ok) setErrorBanner(res.error ?? "Failed to remove user");
+  };
+
+  const handleApproveJoin = async (requestId: string, permission: Permission) => {
+    if (!api) return;
+    const res = await api.approveJoin({ requestId, permission });
+    if (!res.ok) setErrorBanner(res.error ?? "Failed to approve request");
+  };
+
+  const handleRejectJoin = async (requestId: string, reason?: string) => {
+    if (!api) return;
+    const res = await api.rejectJoin({ requestId, reason });
+    if (!res.ok) setErrorBanner(res.error ?? "Failed to reject request");
   };
 
   // --- Client-role handlers ---
@@ -336,7 +349,19 @@ function App() {
               setJoinRejectReason(response.reason ?? "Host rejected the request");
             }
           }}
-          onBack={() => {
+          onBack={async () => {
+            const isActive =
+              connectionState === "awaiting_approval" ||
+              connectionState === "connecting" ||
+              connectionState === "connected";
+            if (isActive) {
+              const confirmed = confirm(
+                "Leave this session? You'll need the session code to rejoin."
+              );
+              if (!confirmed) return;
+              if (api) await api.disconnectClient();
+              clearClientRamState();
+            }
             setConnectionState("disconnected");
             setScreen("home");
           }}
@@ -369,6 +394,17 @@ function App() {
         />
       ) : null}
 
+      {pendingJoins.length > 0 ? (
+        <JoinRequestModal
+          pendingJoins={pendingJoins}
+          workspaceNameById={Object.fromEntries(hostedWorkspaces.map((ws) => [ws.workspaceId, ws.workspaceName]))}
+          defaultPermissionByWorkspaceId={Object.fromEntries(
+            hostedWorkspaces.map((ws) => [ws.workspaceId, ws.defaultPermission])
+          )}
+          onApprove={handleApproveJoin}
+          onReject={handleRejectJoin}
+        />
+      ) : null}
     </main>
   );
 }
