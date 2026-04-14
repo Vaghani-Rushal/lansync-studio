@@ -1,0 +1,72 @@
+{
+  "name": "@pcconnector/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron electron/main.mjs\"",
+    "build": "tsc -b && vite build",
+    "build:main": "node -e \"require('fs').cpSync('electron','dist-electron',{recursive:true})\"",
+    "bundle": "pnpm build && pnpm build:main && electron-builder",
+    "dist:win": "pnpm build && pnpm build:main && electron-builder --win",
+    "dist:mac": "pnpm build && pnpm build:main && electron-builder --mac",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@pcconnector/protocol": "workspace:*",
+    "@pcconnector/shared-types": "workspace:*",
+    "@tanstack/react-query": "^5.99.0",
+    "bonjour-service": "^1.3.0",
+    "chokidar": "^5.0.0",
+    "electron": "^41.2.0",
+    "mammoth": "^1.12.0",
+    "pino": "^10.3.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "uuid": "^13.0.0",
+    "ws": "^8.20.0",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "playwright": "^1.59.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.0",
+    "vite": "^8.0.4",
+    "vite-plugin-static-copy": "^4.0.1",
+    "vitest": "^4.1.4",
+    "wait-on": "^9.0.5"
+  },
+  "main": "dist-electron/main.mjs",
+  "build": {
+    "appId": "com.pcconnector.desktop",
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

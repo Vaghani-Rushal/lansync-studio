@@ -1,0 +1,269 @@
+:root {
+  font-family: Inter, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, #152033 0%, #0b1018 45%, #070b12 100%);
+  color: #e7ebf4;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+
+.professional .topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(23, 30, 46, 0.8);
+  border: 1px solid #2a3340;
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+
+.pill {
+  background: #2f4366;
+  border: 1px solid #5777ad;
+  border-radius: 99px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.panel {
+  background: rgba(16, 22, 35, 0.9);
+  border: 1px solid #2d3a52;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.screen {
+  grid-column: 1 / -1;
+}
+
+.top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.row-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-screen {
+  text-align: center;
+  padding: 30px;
+}
+
+.home-actions {
+  margin: 16px 0;
+}
+
+.code-box {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #3c537a;
+  background: rgba(33, 45, 68, 0.5);
+  margin: 8px 0 16px;
+  font-size: 18px;
+  letter-spacing: 1px;
+}
+
+button {
+  margin-right: 8px;
+  margin-bottom: 8px;
+  border: 1px solid #445167;
+  border-radius: 6px;
+  color: white;
+  background: #1f2a3b;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input {
+  width: 100%;
+  margin-bottom: 8px;
+  background: #0f1115;
+  border: 1px solid #2a3340;
+  color: #e7ebf4;
+  border-radius: 6px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.workspace-row,
+.join-request {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #2a3340;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.explorer-panel {
+  grid-column: 1 / -1;
+}
+
+.explorer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 14px;
+}
+
+.explorer-list,
+.explorer-preview {
+  background: rgba(9, 13, 22, 0.6);
+  border: 1px solid #243248;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.active-row {
+  background: rgba(42, 77, 126, 0.25);
+  border-radius: 8px;
+}
+
+.subtle {
+  color: #9db0ca;
+  font-size: 13px;
+}
+
+.error-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #9e4f56;
+  background: #3a1f24;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+.file-list {
+  max-height: 260px;
+  overflow: auto;
+  padding-left: 0;
+  list-style: none;
+}
+
+.file-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+}
+
+.compact-list {
+  max-height: 120px;
+}
+
+.preview-text {
+  background: #0f1115;
+  border: 1px solid #2a3340;
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 120px;
+  white-space: pre-wrap;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 8px;
+}
+
+.preview-frame {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid #2a3340;
+  border-radius: 8px;
+}
+
+.preview-video {
+  width: 100%;
+  max-height: 360px;
+  border-radius: 8px;
+}
+
+.preview-audio {
+  width: 100%;
+}
+
+.info-card {
+  background: rgba(33, 45, 68, 0.5);
+  border: 1px solid #3c537a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.docx-preview {
+  max-height: 480px;
+  overflow: auto;
+  padding: 14px 16px;
+  background: #f4f6fa;
+  color: #1a1d24;
+  border: 1px solid #2a3340;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.docx-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+.docx-preview td,
+.docx-preview th {
+  border: 1px solid #c5cad6;
+  padding: 4px 8px;
+}
+
+.docx-preview p {
+  margin: 0.5em 0;
+}
+
+.docx-preview img {
+  max-width: 100%;
+  height: auto;
+}
+
+.editor-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-textarea {
+  width: 100%;
+  min-height: 360px;
+  background: #0f1115;
+  color: #d8e4f7;
+  border: 1px solid #2a3340;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
