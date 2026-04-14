@@ -3,6 +3,7 @@ import { z } from "zod";
 export const messageTypes = [
   "HELLO",
   "JOIN_REQUEST",
+  "JOIN_PENDING",
   "JOIN_ACCEPT",
   "JOIN_REJECT",
   "CLIENTS_UPDATE",
@@ -22,13 +23,18 @@ export const messageTypes = [
   "CRDT_SYNC_REQUEST",
   "CRDT_SYNC_RESPONSE",
   "CRDT_UPDATE",
+  "PERMISSION_CHANGED",
+  "SESSION_REVOKED",
   "ERROR",
   "PING",
   "PONG",
   "SESSION_STOP"
 ] as const;
 
-export const protocolVersion = "1.0.0";
+export const protocolVersion = "1.1.0";
+
+export const permissionSchema = z.enum(["VIEW_ONLY", "VIEW_EDIT"]);
+export type Permission = z.infer<typeof permissionSchema>;
 
 export const wireMessageSchema = z.object({
   version: z.literal(protocolVersion),
@@ -39,11 +45,25 @@ export const wireMessageSchema = z.object({
 
 export type WireMessage = z.infer<typeof wireMessageSchema>;
 
+export const displayNameSchema = z
+  .string()
+  .trim()
+  .min(2, "Name must be at least 2 characters")
+  .max(32, "Name must be at most 32 characters")
+  .regex(/^[^\x00-\x1F\x7F]+$/u, "Name contains invalid characters");
+
 export const joinRequestSchema = z.object({
-  deviceName: z.string().min(1),
+  displayName: displayNameSchema,
   clientId: z.string().uuid(),
-  workspaceId: z.string().optional(),
-  sessionCode: z.string().min(4).optional()
+  workspaceId: z.string().min(1),
+  sessionCode: z.string().min(4)
+});
+
+export const joinPendingSchema = z.object({
+  requestId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  workspaceName: z.string().min(1),
+  hostName: z.string().min(1)
 });
 
 export const joinAcceptSchema = z.object({
@@ -52,7 +72,24 @@ export const joinAcceptSchema = z.object({
   hostName: z.string().min(1),
   workspaceId: z.string().min(1),
   sessionCode: z.string().min(4),
+  permission: permissionSchema,
   capabilities: z.array(z.string()).default(["read"])
+});
+
+export const joinRejectSchema = z.object({
+  reason: z.string().min(1),
+  workspaceId: z.string().optional()
+});
+
+export const permissionChangedSchema = z.object({
+  workspaceId: z.string().min(1),
+  permission: permissionSchema,
+  capabilities: z.array(z.string())
+});
+
+export const sessionRevokedSchema = z.object({
+  workspaceId: z.string().min(1),
+  reason: z.string().min(1)
 });
 
 export const workspaceEntrySchema = z.object({

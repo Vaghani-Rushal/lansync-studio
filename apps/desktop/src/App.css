@@ -458,6 +458,105 @@ input {
   pointer-events: none;
 }
 
+/* ---------- New UI (multi-workspace, approval modal, client rows) ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 12, 20, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.modal-card {
+  width: min(520px, 100%);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.workspace-tab {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #2a3340;
+  background: #0f1115;
+  color: #d8e4f7;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.workspace-tab.is-active {
+  background: #1f3357;
+  border-color: #3a5b95;
+}
+
+.new-workspace-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px dashed #3a5b95;
+  background: transparent;
+  color: #7fb0ff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.user-card.with-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.user-card-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.permission-select {
+  background: #0f1115;
+  color: #d8e4f7;
+  border: 1px solid #2a3340;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.pending-banner {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #2e241f;
+  border: 1px solid #6b4b28;
+  color: #fbd89a;
+  margin-bottom: 8px;
+}
+
+.identity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #1f2430;
+  border: 1px solid #2a3340;
+  color: #d8e4f7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.identity-chip:hover {
+  background: #252b39;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

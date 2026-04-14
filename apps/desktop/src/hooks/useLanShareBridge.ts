@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import mammoth from "mammoth";
 import * as Y from "yjs";
+import type { ConnectedClient, HostedWorkspace, PendingJoin, Permission } from "@pcconnector/shared-types";
 import { useLanShareStore } from "../state/lanShareStore";
 import type { StreamMeta } from "../state/lanShareStore";
 import { isTextEditableFile } from "../utils/viewerRouter";
@@ -73,7 +74,8 @@ export const useLanShareBridge = () => {
   >(new Map());
 
   const setDiscovered = useLanShareStore((s) => s.setDiscovered);
-  const setConnectedClients = useLanShareStore((s) => s.setConnectedClients);
+  const setHostedWorkspaces = useLanShareStore((s) => s.setHostedWorkspaces);
+  const setPendingJoins = useLanShareStore((s) => s.setPendingJoins);
   const setConnectionState = useLanShareStore((s) => s.setConnectionState);
   const setClientFiles = useLanShareStore((s) => s.setClientFiles);
   const setStatus = useLanShareStore((s) => s.setStatus);
@@ -88,9 +90,10 @@ export const useLanShareBridge = () => {
   const setStreamMeta = useLanShareStore((s) => s.setStreamMeta);
   const setStreamState = useLanShareStore((s) => s.setStreamState);
   const pushClientMessage = useLanShareStore((s) => s.pushClientMessage);
-  const setSessionCode = useLanShareStore((s) => s.setSessionCode);
-  const setEditorReadOnly = useLanShareStore((s) => s.setEditorReadOnly);
-  const resetPreviewState = useLanShareStore((s) => s.resetPreviewState);
+  const setClientPermission = useLanShareStore((s) => s.setClientPermission);
+  const setJoinedWorkspace = useLanShareStore((s) => s.setJoinedWorkspace);
+  const setJoinRejectReason = useLanShareStore((s) => s.setJoinRejectReason);
+  const resetClientSessionState = useLanShareStore((s) => s.resetClientSessionState);
 
   const ensureCrdtDoc = (relativePath: string, initialText = "") => {
     const existing = crdtDocsRef.current.get(relativePath);
@@ -139,7 +142,7 @@ export const useLanShareBridge = () => {
       entry.doc.destroy();
     }
     crdtDocsRef.current.clear();
-    resetPreviewState();
+    resetClientSessionState();
   };
 
   useEffect(() => {
@@ -155,14 +158,47 @@ export const useLanShareBridge = () => {
     };
 
     const offWorkspaces = api.onWorkspaces(setDiscovered);
-    const offClients = api.onSessionClients(setConnectedClients);
-    const offMessages = api.onClientMessage((message) => {
-      pushClientMessage(`${message.type}: ${JSON.stringify(message.payload)}`);
+    const offHosted = api.onHostedWorkspaces((list: HostedWorkspace[]) => {
+      setHostedWorkspaces(list);
+    });
+    const offPending = api.onPendingJoins((list: PendingJoin[]) => {
+      setPendingJoins(list);
+    });
 
+    const offMessages = api.onClientMessage((message) => {
+      pushClientMessage(`${message.type}: ${JSON.stringify(message.payload).slice(0, 200)}`);
+
+      if (message.type === "JOIN_PENDING") {
+        const payload = message.payload as { workspaceId: string; workspaceName: string };
+        setConnectionState("awaiting_approval");
+        setJoinedWorkspace(payload.workspaceId, payload.workspaceName);
+      }
       if (message.type === "JOIN_ACCEPT") {
+        const payload = message.payload as {
+          workspaceId: string;
+          workspaceName: string;
+          permission: Permission;
+        };
         setConnectionState("connected");
-        const capabilities = (message.payload.capabilities as string[]) ?? ["read"];
-        setEditorReadOnly(!capabilities.includes("write"));
+        setJoinedWorkspace(payload.workspaceId, payload.workspaceName);
+        setClientPermission(payload.permission ?? "VIEW_ONLY");
+        setJoinRejectReason(null);
+      }
+      if (message.type === "JOIN_REJECT") {
+        const payload = message.payload as { reason?: string };
+        setConnectionState("rejected");
+        setJoinRejectReason(payload.reason ?? "Host rejected the request");
+      }
+      if (message.type === "PERMISSION_CHANGED") {
+        const payload = message.payload as { permission: Permission };
+        setClientPermission(payload.permission);
+        setStatus(`Permission updated: ${payload.permission === "VIEW_EDIT" ? "View + Edit" : "View only"}`);
+      }
+      if (message.type === "SESSION_REVOKED") {
+        const payload = message.payload as { reason?: string };
+        setErrorBanner(payload.reason ?? "You have been removed by the host.");
+        clearClientRamState();
+        useLanShareStore.getState().setScreen("join");
       }
       if (message.type === "WORKSPACE_SNAPSHOT") {
         const entries =
@@ -197,8 +233,17 @@ export const useLanShareBridge = () => {
         }
       }
       if (message.type === "CLIENTS_UPDATE") {
-        const clients = (message.payload.clients as Array<{ clientId: string; deviceName: string; connectedAt: number; capabilities: string[] }>) ?? [];
-        setConnectedClients(clients);
+        const payload = message.payload as { workspaceId: string; clients: ConnectedClient[] };
+        // Host-side broadcast — update hostedWorkspaces client list locally so UI stays fresh
+        // even if host:workspaces snapshot lags. The main snapshot will reconcile.
+        const current = useLanShareStore.getState().hostedWorkspaces;
+        if (current.length > 0) {
+          setHostedWorkspaces(
+            current.map((ws) =>
+              ws.workspaceId === payload.workspaceId ? { ...ws, clients: payload.clients } : ws
+            )
+          );
+        }
       }
       if (message.type === "SESSION_STOP") {
         setConnectionState("disconnected");
@@ -318,9 +363,9 @@ export const useLanShareBridge = () => {
             const url = URL.createObjectURL(blob);
             previewUrlRef.current = url;
             setPreviewUrl(url);
-          setPreviewBuffer(
-            uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength)
-          );
+            setPreviewBuffer(
+              uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength)
+            );
             setPreviewText("");
             setDocxPreview(null);
           } else if (isDocx) {
@@ -382,41 +427,18 @@ export const useLanShareBridge = () => {
 
     const offHostStatus = api.onHostStatus((hostStatus) => {
       setStatus(hostStatus.message ?? hostStatus.state);
-      if (hostStatus.sessionCode) {
-        setSessionCode(hostStatus.sessionCode);
-      }
     });
 
     return () => {
       clearClientRamState();
       offWorkspaces();
-      offClients();
+      offHosted();
+      offPending();
       offMessages();
       offHostStatus();
     };
-  }, [
-    api,
-    bridgeReady,
-    pushClientMessage,
-    setClientFiles,
-    setConnectedClients,
-    setConnectionState,
-    setDiscovered,
-    setDocxPreview,
-    setEditorText,
-    setErrorBanner,
-    setIsDirty,
-    setPreviewText,
-    setPreviewUrl,
-    setSelectedMimeType,
-    setSessionCode,
-    setEditorReadOnly,
-    resetPreviewState,
-    setStatus,
-    setStreamMeta,
-    setStreamState,
-    setPreviewBuffer
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, bridgeReady]);
 
   return { bridgeReady, api, applyEditorChange, clearClientRamState };
 };

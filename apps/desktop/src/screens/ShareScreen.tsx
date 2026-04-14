@@ -1,140 +1,192 @@
-import type { ConnectedClient, FileTreeNode } from "@pcconnector/shared-types";
+import type { HostedWorkspace, PendingJoin, Permission } from "@pcconnector/shared-types";
 
 type Props = {
-  workspaceName: string;
-  sessionCode: string;
-  status: string;
-  hostFiles: FileTreeNode[];
-  connectedClients: ConnectedClient[];
+  hostedWorkspaces: HostedWorkspace[];
+  activeHostWorkspaceId: string | null;
+  pendingJoins: PendingJoin[];
+  newWorkspaceName: string;
+  newWorkspacePermission: Permission;
   isCreatingWorkspace: boolean;
-  sharePermission: "VIEW_ONLY" | "VIEW_EDIT";
   bridgeReady: boolean;
-  onWorkspaceNameChange: (value: string) => void;
+  status: string;
+  onNewWorkspaceNameChange: (value: string) => void;
+  onNewWorkspacePermissionChange: (permission: Permission) => void;
   onCreateWorkspace: () => Promise<void>;
-  onSharePermissionChange: (permission: "VIEW_ONLY" | "VIEW_EDIT") => void;
-  onStopSession: () => Promise<void>;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onStopWorkspace: (workspaceId: string) => Promise<void>;
+  onUpdateClientPermission: (workspaceId: string, clientId: string, permission: Permission) => Promise<void>;
+  onKickClient: (workspaceId: string, clientId: string) => Promise<void>;
   onBack: () => void;
 };
 
 export const ShareScreen = ({
-  workspaceName,
-  sessionCode,
-  status,
-  hostFiles,
-  connectedClients,
+  hostedWorkspaces,
+  activeHostWorkspaceId,
+  pendingJoins,
+  newWorkspaceName,
+  newWorkspacePermission,
   isCreatingWorkspace,
-  sharePermission,
   bridgeReady,
-  onWorkspaceNameChange,
+  status,
+  onNewWorkspaceNameChange,
+  onNewWorkspacePermissionChange,
   onCreateWorkspace,
-  onSharePermissionChange,
-  onStopSession,
+  onSelectWorkspace,
+  onStopWorkspace,
+  onUpdateClientPermission,
+  onKickClient,
   onBack
 }: Props) => {
-  const isHosting = Boolean(sessionCode);
+  const hasWorkspaces = hostedWorkspaces.length > 0;
+  const active = hostedWorkspaces.find((w) => w.workspaceId === activeHostWorkspaceId) ?? hostedWorkspaces[0] ?? null;
+  const pendingCount = pendingJoins.length;
+  const pendingForActive = active ? pendingJoins.filter((p) => p.workspaceId === active.workspaceId).length : 0;
+
   return (
     <section className="screen ui-shell">
       <div className="top-row bar-row">
         <button className="ghost-btn" onClick={onBack}>
           Back
         </button>
-        <h2 className="section-heading">{isHosting ? "Hosting session" : "Share a file or folder"}</h2>
-        <span className="status-pill">{isHosting ? "Hosting" : "Setup"}</span>
+        <h2 className="section-heading">{hasWorkspaces ? "Hosting workspaces" : "Share a file or folder"}</h2>
+        <span className="status-pill">
+          {hasWorkspaces ? `${hostedWorkspaces.length} active` : "Setup"}
+        </span>
       </div>
 
-      {!isHosting ? (
-        <div className="setup-steps">
-          <div className="step-card card-surface">
-            <div className="step-index">1</div>
-            <div className="step-body">
-              <div className="section-title">Select file or folder</div>
-              <input value={workspaceName} onChange={(event) => onWorkspaceNameChange(event.target.value)} />
-              <div className="muted">Choose the workspace folder to share on LAN.</div>
-            </div>
-          </div>
-
-          <div className="step-card card-surface">
-            <div className="step-index">2</div>
-            <div className="step-body">
-              <div className="section-title">Set permission</div>
-              <div className="permission-grid">
-                <button
-                  className={`permission-card ${sharePermission === "VIEW_ONLY" ? "is-active" : ""}`}
-                  onClick={() => onSharePermissionChange("VIEW_ONLY")}
-                >
-                  <div>View only</div>
-                  <div className="muted">Read-only access</div>
-                </button>
-                <button
-                  className={`permission-card ${sharePermission === "VIEW_EDIT" ? "is-active" : ""}`}
-                  onClick={() => onSharePermissionChange("VIEW_EDIT")}
-                >
-                  <div>View + Edit</div>
-                  <div className="muted">Collaborative editing</div>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="step-card card-surface">
-            <div className="step-index">3</div>
-            <div className="step-body">
-              <div className="section-title">Start sharing</div>
-              <button className="primary-btn" disabled={!bridgeReady || isCreatingWorkspace} onClick={onCreateWorkspace}>
-                {isCreatingWorkspace ? "Starting..." : "Start sharing"}
-              </button>
-              <div className="muted">{status}</div>
-            </div>
-          </div>
+      {pendingCount > 0 ? (
+        <div className="pending-banner">
+          {pendingCount} join request{pendingCount === 1 ? "" : "s"} awaiting your approval
         </div>
-      ) : (
+      ) : null}
+
+      {hasWorkspaces ? (
+        <div className="workspace-tabs">
+          {hostedWorkspaces.map((ws) => {
+            const pendingForWs = pendingJoins.filter((p) => p.workspaceId === ws.workspaceId).length;
+            return (
+              <button
+                key={ws.workspaceId}
+                className={`workspace-tab ${ws.workspaceId === active?.workspaceId ? "is-active" : ""}`}
+                onClick={() => onSelectWorkspace(ws.workspaceId)}
+              >
+                {ws.workspaceName} · {ws.sessionCode}
+                {pendingForWs > 0 ? ` · ${pendingForWs}⚠` : ""}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {/* New workspace setup card (always available) */}
+      <div className="step-card card-surface">
+        <div className="step-index">+</div>
+        <div className="step-body">
+          <div className="section-title">Start a new workspace</div>
+          <input
+            value={newWorkspaceName}
+            placeholder="Workspace name"
+            onChange={(event) => onNewWorkspaceNameChange(event.target.value)}
+          />
+          <div className="permission-grid" style={{ marginTop: 8 }}>
+            <button
+              className={`permission-card ${newWorkspacePermission === "VIEW_ONLY" ? "is-active" : ""}`}
+              onClick={() => onNewWorkspacePermissionChange("VIEW_ONLY")}
+            >
+              <div>Default: View only</div>
+              <div className="muted">Default for new joiners</div>
+            </button>
+            <button
+              className={`permission-card ${newWorkspacePermission === "VIEW_EDIT" ? "is-active" : ""}`}
+              onClick={() => onNewWorkspacePermissionChange("VIEW_EDIT")}
+            >
+              <div>Default: View + Edit</div>
+              <div className="muted">Default for new joiners</div>
+            </button>
+          </div>
+          <button
+            className="primary-btn"
+            style={{ marginTop: 12 }}
+            disabled={!bridgeReady || isCreatingWorkspace || newWorkspaceName.trim().length === 0}
+            onClick={onCreateWorkspace}
+          >
+            {isCreatingWorkspace ? "Starting..." : "Pick folder & start sharing"}
+          </button>
+          <div className="muted">{status}</div>
+        </div>
+      </div>
+
+      {active ? (
         <>
           <div className="host-top-row">
             <span className="live-pill">LIVE</span>
-            <button className="danger-btn" disabled={!bridgeReady} onClick={onStopSession}>
-              Stop sharing
+            <div className="muted" style={{ flex: 1, marginLeft: 12 }}>
+              {active.rootPath}
+            </div>
+            <button className="danger-btn" disabled={!bridgeReady} onClick={() => onStopWorkspace(active.workspaceId)}>
+              Stop this workspace
             </button>
           </div>
+
           <div className="code-card card-surface">
-            <div className="section-title">Share code</div>
-            <div className="code-display">{sessionCode}</div>
+            <div className="section-title">{active.workspaceName}</div>
+            <div className="code-display">{active.sessionCode}</div>
             <div className="muted">Share this code with people on your network</div>
           </div>
 
-          <div className="host-file-card card-surface">
-            <div className="section-title">Active workspace</div>
-            <div className="muted">{workspaceName}</div>
-            <ul className="file-list compact-list">
-              {hostFiles.slice(0, 8).map((node) => (
-                <li key={node.id}>{node.relativePath}</li>
-              ))}
-            </ul>
-          </div>
+          {pendingForActive > 0 ? (
+            <div className="pending-banner">
+              {pendingForActive} pending request{pendingForActive === 1 ? "" : "s"} for this workspace — review in the popup.
+            </div>
+          ) : null}
 
-          <div className="section-title">Connected users ({connectedClients.length})</div>
-          {connectedClients.length === 0 ? <div className="muted">No active clients</div> : null}
-          {connectedClients.map((client) => (
-            <div className="user-card card-surface" key={client.clientId}>
+          <div className="section-title">Connected users ({active.clients.length})</div>
+          {active.clients.length === 0 ? <div className="muted">No users connected to this workspace yet</div> : null}
+          {active.clients.map((client) => (
+            <div className="user-card with-controls card-surface" key={client.clientId}>
               <div>
-                <strong>{client.deviceName}</strong>
-                <div className="muted">{new Date(client.connectedAt).toLocaleTimeString()}</div>
+                <strong>{client.displayName}</strong>
+                <div className="muted">Connected {new Date(client.connectedAt).toLocaleTimeString()}</div>
               </div>
-              <span className={`status-pill ${client.capabilities.includes("write") ? "ok" : ""}`}>
-                {client.capabilities.includes("write") ? "Editing" : "Viewing"}
-              </span>
+              <div className="user-card-controls">
+                <select
+                  className="permission-select"
+                  value={client.permission}
+                  onChange={(event) =>
+                    void onUpdateClientPermission(
+                      active.workspaceId,
+                      client.clientId,
+                      event.target.value as Permission
+                    )
+                  }
+                >
+                  <option value="VIEW_ONLY">View only</option>
+                  <option value="VIEW_EDIT">View + Edit</option>
+                </select>
+                <button
+                  className="danger-btn"
+                  onClick={() => {
+                    if (confirm(`Remove ${client.displayName}?`)) {
+                      void onKickClient(active.workspaceId, client.clientId);
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
 
           <div className="transport-card card-surface">
             <div className="muted">Transport</div>
-            <div>WebSocket · :7777</div>
+            <div>WebSocket · :7788</div>
             <div className="muted">Discovery</div>
             <div>mDNS / Bonjour</div>
             <div className="muted">Client storage</div>
             <div className="ok-text">RAM only · 0 disk writes</div>
           </div>
         </>
-      )}
+      ) : null}
     </section>
   );
 };
