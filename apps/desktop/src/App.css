@@ -1605,3 +1605,71 @@ select:focus {
   max-height: 120px;
   object-fit: contain;
 }
+
+/* ── Clipboard floating window (standalone mode) ──────────────────────────── */
+.clipboard-window-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: rgba(16, 23, 37, 0.98);
+  color: #e8eefc;
+  overflow: hidden;
+  user-select: none;
+}
+
+.clipboard-window-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #0f1522;
+  border-bottom: 1px solid #2a3446;
+  -webkit-app-region: drag;
+}
+
+.clipboard-window-drag {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+}
+
+.clipboard-window-close {
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: none;
+  color: #5c6e8e;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.clipboard-window-close:hover { color: #ff6b6b; }
+
+.clipboard-shortcuts-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1e2d42;
+  flex-wrap: wrap;
+}
+
+.clipboard-shortcut-badge {
+  font-size: 11px;
+  background: #0f1a2b;
+  border: 1px solid #2a3d58;
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: #7fb0ff;
+}
+
+.clipboard-toasts {
+  position: absolute;
+  top: 90px;
+  right: 12px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}

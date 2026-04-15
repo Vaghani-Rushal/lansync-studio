@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage, screen } from "electron";
 import path from "node:path";
 import { promises as fsPromises } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -53,10 +53,8 @@ clipboardService.on("manual-clipboard-capture", (item) => {
       sessionToken: activeSessionToken
     });
   }
-  // Refresh the UI sidebar
-  if (mainWindow) {
-    mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
-  }
+  // Refresh all clipboard-aware windows
+  sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
 });
 
 /** @type {IdentityService} */
@@ -64,6 +62,28 @@ let identityService;
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+
+/** @type {BrowserWindow | null} */
+let clipboardWindow = null;
+
+// Set to true when the app is actually quitting (Cmd+Q / app.quit()).
+// Prevents the clipboard window's close-event intercept from blocking real quits.
+let isQuitting = false;
+
+/**
+ * Sends a clipboard IPC event to every window that cares about clipboard state.
+ * Centralizes the fan-out so we never miss a window.
+ * @param {string} channel
+ * @param {unknown} payload
+ */
+function sendToClipboardWindows(channel, payload) {
+  for (const win of [mainWindow, clipboardWindow]) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, payload);
+    }
+  }
+}
+
 const SHARED_PORT = 7788;
 let serverStarted = false;
 
@@ -140,6 +160,47 @@ const createWindow = async () => {
     await mainWindow.loadURL(devServer);
   } else {
     await mainWindow.loadFile(path.join(import.meta.dirname, "../dist/index.html"));
+  }
+};
+
+const createClipboardWindow = async () => {
+  // workArea excludes the macOS menu bar (top) and Dock (bottom/side), and
+  // the Windows taskbar — so the window is always fully visible on any platform.
+  const { x: areaX, y: areaY, width: areaWidth } = screen.getPrimaryDisplay().workArea;
+
+  clipboardWindow = new BrowserWindow({
+    width: 360,
+    height: 600,
+    x: areaX + areaWidth - 380,   // 20px margin from right edge of work area
+    y: areaY + 20,                 // 20px below the top of work area (clears menu bar on macOS)
+    frame: false,
+    resizable: true,
+    skipTaskbar: true,
+    alwaysOnTop: false,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  // Hide instead of destroy — keeps the service alive, re-showable via shortcut.
+  // Exception: allow the close when the app is actually quitting (e.g. Cmd+Q on macOS).
+  clipboardWindow.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      clipboardWindow.hide();
+    }
+  });
+
+  const devServer = process.env.VITE_DEV_SERVER_URL;
+  if (devServer) {
+    await clipboardWindow.loadURL(`${devServer}?window=clipboard`);
+  } else {
+    await clipboardWindow.loadFile(
+      path.join(import.meta.dirname, "../dist/index.html"),
+      { query: { window: "clipboard" } }
+    );
   }
 };
 
@@ -466,9 +527,7 @@ const onWireMessage = async (socket, message) => {
       }
     }
 
-    if (mainWindow) {
-      mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
-    }
+    sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
   }
 };
 
@@ -707,6 +766,15 @@ class LanSyncPasteHelper {
 }
 
 /**
+ * Returns true if an execAsync error is caused by macOS Accessibility permission being denied.
+ * Error code -1743 = "Not authorized to send Apple events to System Events."
+ */
+function isMacAccessibilityError(err) {
+  const msg = (err?.message ?? "").toLowerCase();
+  return msg.includes("-1743") || msg.includes("not authorized") || msg.includes("assistive devices");
+}
+
+/**
  * Simulate Ctrl+V in the currently focused window.
  * Handles the Shift-key collision from Ctrl+Shift+F via the paste helper EXE.
  */
@@ -714,7 +782,8 @@ async function simulatePasteKeystroke() {
   try {
     if (process.platform === "darwin") {
       await execAsync(
-        `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
+        `osascript -e 'tell application "System Events" to keystroke "v" using command down'`,
+        { timeout: 5000 }
       );
     } else if (process.platform === "win32") {
       if (pasteHelperExe && fs.existsSync(pasteHelperExe)) {
@@ -725,6 +794,10 @@ async function simulatePasteKeystroke() {
     }
   } catch (err) {
     logger.warn("[simulatePaste] Failed:", err.message);
+    if (process.platform === "darwin" && isMacAccessibilityError(err)) {
+      sendToClipboardWindows("clipboard:permission-error",
+        "Grant Accessibility access to PcConnector in System Settings → Privacy & Security → Accessibility, then restart the app.");
+    }
   }
 }
 
@@ -752,9 +825,18 @@ async function simulateCopyKeystroke() {
         await new Promise((r) => setTimeout(r, 200));
       } else {
         logger.info("[simulateCopy] macOS: external app focused → osascript");
-        await execAsync(
-          `osascript -e 'tell application "System Events" to keystroke "c" using command down'`
-        );
+        try {
+          await execAsync(
+            `osascript -e 'tell application "System Events" to keystroke "c" using command down'`,
+            { timeout: 5000 }
+          );
+        } catch (osaErr) {
+          logger.warn("[simulateCopy] osascript failed:", osaErr.message);
+          if (isMacAccessibilityError(osaErr)) {
+            sendToClipboardWindows("clipboard:permission-error",
+              "Grant Accessibility access to PcConnector in System Settings → Privacy & Security → Accessibility, then restart the app.");
+          }
+        }
         await new Promise((r) => setTimeout(r, 400));
       }
     } else if (process.platform === "win32") {
@@ -791,6 +873,34 @@ async function simulateCopyKeystroke() {
  */
 const IMAGE_EXTS_FOR_EXPLORER = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico"];
 
+/**
+ * macOS equivalent of getExplorerSelectedImagePath().
+ * Uses AppleScript to query Finder for the first selected item, then checks
+ * if it is an image file.  Returns the POSIX path string, or null.
+ */
+async function getFinderSelectedImagePath() {
+  if (process.platform !== "darwin") return null;
+  try {
+    const { stdout } = await execAsync(
+      `osascript -e 'tell application "Finder"' ` +
+      `-e 'set sel to selection' ` +
+      `-e 'if sel is {} then return ""' ` +
+      `-e 'return POSIX path of (item 1 of sel as alias)' ` +
+      `-e 'end tell'`,
+      { timeout: 3000 }
+    );
+    const p = stdout.trim();
+    if (p && IMAGE_EXTS_FOR_EXPLORER.some((ext) => p.toLowerCase().endsWith(ext))) {
+      logger.info(`[getFinderSelectedImagePath] found: ${p}`);
+      return p;
+    }
+    return null;
+  } catch (err) {
+    logger.warn("[getFinderSelectedImagePath] AppleScript query failed:", err.message);
+    return null;
+  }
+}
+
 async function getExplorerSelectedImagePath() {
   if (process.platform !== "win32") return null;
   // PowerShell: iterate open Explorer windows, collect selected item paths
@@ -826,6 +936,7 @@ app.whenReady().then(async () => {
   identityService = new IdentityService(app.getPath("userData"));
   await identityService.load();
   await createWindow();
+  await createClipboardWindow();
 
   // -----------------------------------------------------------------------
   // Global shortcuts
@@ -846,38 +957,40 @@ app.whenReady().then(async () => {
     let item = clipboardService.captureNow();
     logger.info(`[Shortcut] captureNow result: ${item ? item.historyId : "null"}`);
 
-    // Step 3: FALLBACK — if nothing captured, directly ask File Explorer
-    //   what files the user has selected, then load the image from disk.
-    //   This handles the CF_HDROP case where Electron's clipboard API
-    //   cannot read CF_HDROP as a native image.
+    // Step 3: FALLBACK — if nothing captured, ask the OS file manager which
+    //   image file the user has selected, then load it from disk.
+    //   • Windows: CF_HDROP file paths via PowerShell + Shell.Application
+    //   • macOS:   Finder selection via AppleScript
+    //   This covers the case where Electron's clipboard API cannot read a
+    //   file-reference clipboard entry as a bitmap.
     if (!item) {
-      logger.info("[Shortcut] captureNow was empty — querying File Explorer selection...");
-      const explorerImagePath = await getExplorerSelectedImagePath();
-      if (explorerImagePath && fs.existsSync(explorerImagePath)) {
+      const fallbackPath = process.platform === "darwin"
+        ? await getFinderSelectedImagePath()
+        : await getExplorerSelectedImagePath();
+
+      if (fallbackPath && fs.existsSync(fallbackPath)) {
         try {
-          const img = nativeImage.createFromPath(explorerImagePath);
+          const img = nativeImage.createFromPath(fallbackPath);
           if (!img.isEmpty()) {
-            // Write the real bitmap to clipboard so captureNow() can read it normally
+            // Write the bitmap so captureNow() can read it normally
             clipboard.writeImage(img);
-            logger.info(`[Shortcut] Explorer image preloaded to clipboard: ${explorerImagePath}`);
+            logger.info(`[Shortcut] File-manager image preloaded to clipboard: ${fallbackPath}`);
             item = clipboardService.captureNow();
           } else {
-            logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${explorerImagePath}`);
+            logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${fallbackPath}`);
           }
         } catch (err) {
-          logger.warn("[Shortcut] Failed to load Explorer image:", err.message);
+          logger.warn("[Shortcut] Failed to load file-manager image:", err.message);
         }
       }
     }
 
     // Step 4: Notify UI
-    if (mainWindow) {
-      if (item) {
-        mainWindow.webContents.send("clipboard:captured", item);
-        mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
-      } else {
-        mainWindow.webContents.send("clipboard:captured", null);
-      }
+    if (item) {
+      sendToClipboardWindows("clipboard:captured", item);
+      sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+    } else {
+      sendToClipboardWindows("clipboard:captured", null);
     }
   });
 
@@ -921,17 +1034,35 @@ app.whenReady().then(async () => {
       logger.info("[Shortcut] Ctrl+Shift+F — history is empty, nothing to paste");
     }
 
-    if (mainWindow) {
-      mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
-      mainWindow.webContents.send("clipboard:pasted", item ?? null);
+    sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+    sendToClipboardWindows("clipboard:pasted", item ?? null);
+  });
+
+  const toggleAccel = isMac ? "Command+Shift+H" : "CommandOrControl+Shift+H";
+  globalShortcut.register(toggleAccel, () => {
+    if (!clipboardWindow || clipboardWindow.isDestroyed()) return;
+    if (clipboardWindow.isVisible()) {
+      clipboardWindow.hide();
+    } else {
+      clipboardWindow.show();
+      clipboardWindow.focus();
     }
   });
 
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
+      await createClipboardWindow();
+    } else if (clipboardWindow && !clipboardWindow.isVisible()) {
+      clipboardWindow.show();
     }
   });
+});
+
+// Allow Cmd+Q (and programmatic app.quit()) to close every window, including the
+// clipboard window whose close event is otherwise intercepted to hide instead of destroy.
+app.on("before-quit", () => {
+  isQuitting = true;
 });
 
 app.on("window-all-closed", () => {
@@ -961,7 +1092,14 @@ ipcMain.handle("clipboard:write", async (_event, payload) => {
     clipboardService.setActiveHistoryItem(payload.historyId);
     return { ok: true };
   }
+
   return { ok: false };
+});
+
+ipcMain.handle("clipboard-window:hide", () => {
+  if (clipboardWindow && !clipboardWindow.isDestroyed()) {
+    clipboardWindow.hide();
+  }
 });
 
 ipcMain.handle("identity:set", async (_event, payload) => {

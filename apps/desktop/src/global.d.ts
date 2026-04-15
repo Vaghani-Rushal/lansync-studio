@@ -72,6 +72,7 @@ declare global {
       // Clipboard
       getClipboardHistory(): Promise<Array<{ historyId: string; text?: string; image?: string; timestamp: number }>>;
       writeClipboardItem(payload: { historyId: string }): Promise<{ ok: boolean }>;
+      hideClipboardWindow(): Promise<void>;
 
       // Listeners
       onWorkspaces(listener: Listener<DiscoveryWorkspace[]>): () => void;
@@ -80,6 +81,7 @@ declare global {
       onHostedWorkspaces(listener: Listener<HostedWorkspace[]>): () => void;
       onPendingJoins(listener: Listener<PendingJoin[]>): () => void;
       onClipboardUpdate(listener: Listener<Array<{ historyId: string; text?: string; image?: string; timestamp: number }>>): () => void;
+      onClipboardPermissionError(listener: Listener<string>): () => void;
       onClipboardCaptured(listener: Listener<{ historyId: string; text?: string; image?: string; timestamp: number }>): () => void;
       onClipboardPasted(listener: Listener<{ historyId: string; text?: string; image?: string; timestamp: number }>): () => void;
     };

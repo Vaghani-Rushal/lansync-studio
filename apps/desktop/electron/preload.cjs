@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
   // Clipboard
   getClipboardHistory: () => ipcRenderer.invoke("clipboard:get-history"),
   writeClipboardItem: (payload) => ipcRenderer.invoke("clipboard:write", payload),
+  hideClipboardWindow: () => ipcRenderer.invoke("clipboard-window:hide"),
 
   // Event listeners
   onWorkspaces: (listener) => {
@@ -74,6 +75,11 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on("clipboard:update", handler);
     return () => ipcRenderer.removeListener("clipboard:update", handler);
+  },
+  onClipboardPermissionError: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("clipboard:permission-error", handler);
+    return () => ipcRenderer.removeListener("clipboard:permission-error", handler);
   },
   onClipboardCaptured: (listener) => {
     const handler = (_event, payload) => listener(payload);
