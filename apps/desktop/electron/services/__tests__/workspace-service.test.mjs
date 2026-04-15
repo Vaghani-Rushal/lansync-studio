@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,9 +37,8 @@ describe("WorkspaceService", () => {
   });
 
   describe("writeBinaryFile", () => {
-    it("writes a .docx buffer and leaves no tmp file behind", async () => {
+    it("writes a .docx buffer to disk", async () => {
       const { root, service } = await makeService();
-      // seed an existing .docx so ensureInWorkspace resolves it
       await writeFile(path.join(root, "report.docx"), Buffer.from([0x00]));
 
       const zipMagic = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]);
@@ -47,9 +46,6 @@ describe("WorkspaceService", () => {
 
       const written = await readFile(path.join(root, "report.docx"));
       expect(written.slice(0, 4).toString("hex")).toBe("504b0304");
-
-      const entries = await readdir(root);
-      expect(entries.some((f) => f.includes(".tmp-"))).toBe(false);
     });
 
     it("rejects unsupported extensions", async () => {

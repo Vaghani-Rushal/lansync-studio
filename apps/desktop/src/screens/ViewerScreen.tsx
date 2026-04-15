@@ -1,6 +1,7 @@
 import type { FileTreeNode } from "@pcconnector/shared-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CodeEditor } from "../components/viewers/CodeEditor";
+import { DocxEditor, type DocxEditorHandle } from "../components/viewers/DocxEditor";
 import { ImageViewer } from "../components/viewers/ImageViewer";
 import { PDFViewer } from "../components/viewers/PDFViewer";
 import type { StreamMeta } from "../state/lanShareStore";
@@ -96,7 +97,7 @@ export const ViewerScreen = ({
   const [docxEditedHtml, setDocxEditedHtml] = useState<string | null>(null);
   const [docxDirty, setDocxDirty] = useState(false);
   const [docxStructuralError, setDocxStructuralError] = useState<null | { orig: number; edited: number }>(null);
-  const docxEditorRef = useRef<HTMLDivElement | null>(null);
+  const docxEditorRef = useRef<DocxEditorHandle | null>(null);
 
   useEffect(() => {
     setDocxEditedHtml(null);
@@ -370,15 +371,13 @@ export const ViewerScreen = ({
                             {isSaving ? "Saving..." : "Save to .docx"}
                           </button>
                         </div>
-                        <div
+                        <DocxEditor
+                          key={selectedFile ?? "none"}
                           ref={docxEditorRef}
-                          className="docx-preview"
-                          contentEditable={!editorReadOnly}
-                          suppressContentEditableWarning
-                          spellCheck
-                          dangerouslySetInnerHTML={{ __html: docxPreview.html }}
-                          onInput={(e) => {
-                            setDocxEditedHtml((e.currentTarget as HTMLDivElement).innerHTML);
+                          initialHtml={docxPreview.html}
+                          readOnly={editorReadOnly}
+                          onChange={(html) => {
+                            setDocxEditedHtml(html);
                             setDocxDirty(true);
                           }}
                         />
@@ -396,9 +395,7 @@ export const ViewerScreen = ({
                               <button
                                 className="danger-btn"
                                 onClick={() => {
-                                  if (docxEditorRef.current && docxPreview?.status === "ready") {
-                                    docxEditorRef.current.innerHTML = docxPreview.html;
-                                  }
+                                  docxEditorRef.current?.reset();
                                   setDocxEditedHtml(null);
                                   setDocxDirty(false);
                                   setDocxStructuralError(null);

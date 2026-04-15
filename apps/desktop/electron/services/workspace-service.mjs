@@ -269,19 +269,33 @@ export class WorkspaceService {
         { relativePath }
       );
     }
-    const tmpPath = `${fullPath}.tmp-${process.pid}-${Date.now()}`;
-    try {
-      await fs.writeFile(tmpPath, buffer);
-      await fs.rename(tmpPath, fullPath);
-    } catch (err) {
+
+    // Write with short retry for transient Windows locks (AV scanner, Explorer thumbnail, Word auto-preview).
+    const maxAttempts = 5;
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await fs.unlink(tmpPath);
-      } catch {
-        // best-effort cleanup
+        await fs.writeFile(fullPath, buffer);
+        return { ok: true };
+      } catch (err) {
+        lastErr = err;
+        const code = err?.code;
+        const retryable = code === "EPERM" || code === "EBUSY" || code === "EACCES";
+        if (!retryable || attempt === maxAttempts) break;
+        await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
       }
-      throw err;
     }
-    return { ok: true };
+
+    if (lastErr?.code === "EPERM" || lastErr?.code === "EBUSY" || lastErr?.code === "EACCES") {
+      throw new AppError(
+        "FILE_LOCKED",
+        `Cannot save "${relativePath}" — the file is open in another program (e.g. Word). Close it and try again.`,
+        true,
+        "filesystem",
+        { relativePath, cause: lastErr.code }
+      );
+    }
+    throw lastErr;
   }
 
   async readTextFile(workspaceId, relativePath) {
