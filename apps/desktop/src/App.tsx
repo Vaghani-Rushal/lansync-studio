@@ -298,6 +298,11 @@ function App() {
 
   return (
     <main className="layout professional">
+      <header className="topbar">
+        <h1>PC Connector Workspace</h1>
+        <span className="pill">{status}</span>
+      </header>
+
       {currentScreen === "home" ? (
         <HomeScreen
           identity={identity}
