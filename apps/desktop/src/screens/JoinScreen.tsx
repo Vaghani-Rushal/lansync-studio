@@ -3,15 +3,12 @@ import type { DiscoveryWorkspace } from "@pcconnector/shared-types";
 
 type Props = {
   discovered: DiscoveryWorkspace[];
-  isDiscovering: boolean;
   connectionState: "disconnected" | "connecting" | "awaiting_approval" | "connected" | "rejected";
   joinedWorkspaceName: string;
   joinRejectReason: string | null;
   errorBanner: string | null;
   bridgeReady: boolean;
   onDismissError: () => void;
-  onStartDiscovery: () => Promise<void>;
-  onStopDiscovery: () => Promise<void>;
   onJoinWorkspace: (workspace: DiscoveryWorkspace) => Promise<void>;
   onRetry: () => Promise<void>;
   onCancelJoin: () => void;
@@ -20,15 +17,12 @@ type Props = {
 
 export const JoinScreen = ({
   discovered,
-  isDiscovering,
   connectionState,
   joinedWorkspaceName,
   joinRejectReason,
   errorBanner,
   bridgeReady,
   onDismissError,
-  onStartDiscovery,
-  onStopDiscovery,
   onJoinWorkspace,
   onRetry,
   onCancelJoin,
@@ -110,15 +104,6 @@ export const JoinScreen = ({
             >
               {isConnecting ? "Connecting..." : "Join"}
             </button>
-          </div>
-          <div className="row-wrap">
-            <button disabled={!bridgeReady || isDiscovering} onClick={onStartDiscovery}>
-              Start discovery
-            </button>
-            <button disabled={!bridgeReady || !isDiscovering} onClick={onStopDiscovery}>
-              Stop discovery
-            </button>
-            <span className="status-pill">{connectionState}</span>
           </div>
           <div className="section-title">Nearby hosts detected: {discoveredCount}</div>
         </>

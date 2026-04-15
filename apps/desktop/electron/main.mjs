@@ -1,9 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage, screen, Menu } from "electron";
 import path from "node:path";
 import { promises as fsPromises } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import fs from "node:fs";
+import os from "node:os";
+const execAsync = promisify(exec);
 import chokidar from "chokidar";
+import { WebSocket } from "ws";
 import {
+  clipboardAckSchema,
   crdtInitSchema,
   crdtSyncRequestSchema,
   crdtUpdateSchema,
@@ -13,7 +20,8 @@ import {
   joinRequestSchema,
   openFileSchema,
   permissionSchema,
-  saveFileSchema
+  saveFileSchema,
+  clipboardSyncSchema
 } from "@pcconnector/protocol";
 import { DiscoveryService } from "./services/discovery-service.mjs";
 import { SessionService, permissionToCapabilities } from "./services/session-service.mjs";
@@ -21,6 +29,7 @@ import { WorkspaceService } from "./services/workspace-service.mjs";
 import { TransportService } from "./services/transport-service.mjs";
 import { CrdtService } from "./services/crdt-service.mjs";
 import { IdentityService } from "./services/identity-service.mjs";
+import { ClipboardService } from "./services/clipboard-service.mjs";
 import { AppError, toErrorPayload } from "./services/errors.mjs";
 import { logger } from "./services/logger.mjs";
 
@@ -32,11 +41,196 @@ const sessionService = new SessionService();
 const workspaceService = new WorkspaceService();
 const transportService = new TransportService(sessionService, workspaceService);
 const crdtService = new CrdtService(workspaceService);
+const clipboardService = new ClipboardService();
+
 /** @type {IdentityService} */
 let identityService;
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+
+/** @type {BrowserWindow | null} */
+let clipboardWindow = null;
+
+// Set to true when the app is actually quitting (Cmd+Q / app.quit()).
+// Prevents the clipboard window's close-event intercept from blocking real quits.
+let isQuitting = false;
+const CLIPBOARD_RELAY_MAX_TTL = 2;
+const seenClipboardMessages = new Map();
+const seenClipboardTtlMs = 60_000;
+let runtimeCleanedUp = false;
+const ENABLE_AUTO_CLIPBOARD_MONITOR = false;
+
+/**
+ * Sends a clipboard IPC event to every window that cares about clipboard state.
+ * Centralizes the fan-out so we never miss a window.
+ * @param {string} channel
+ * @param {unknown} payload
+ */
+function sendToClipboardWindows(channel, payload) {
+  for (const win of [mainWindow, clipboardWindow]) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, payload);
+    }
+  }
+}
+
+function markClipboardMessageSeen(messageId) {
+  if (!messageId) return;
+  seenClipboardMessages.set(messageId, Date.now());
+}
+
+function pruneSeenClipboardMessages() {
+  const now = Date.now();
+  for (const [messageId, seenAt] of seenClipboardMessages.entries()) {
+    if (now - seenAt > seenClipboardTtlMs) {
+      seenClipboardMessages.delete(messageId);
+    }
+  }
+}
+
+function hasSeenClipboardMessage(messageId) {
+  if (!messageId) return false;
+  pruneSeenClipboardMessages();
+  return seenClipboardMessages.has(messageId);
+}
+
+function normalizeClipboardPayload(rawPayload, options = {}) {
+  const identity = identityService?.get();
+  const messageId = rawPayload.messageId || randomUUID();
+  const originPeerId = rawPayload.originPeerId || rawPayload.sourceUserId || identity?.userId;
+  const relayTtl = Math.max(
+    0,
+    Number.isFinite(rawPayload.relayTtl)
+      ? Number(rawPayload.relayTtl)
+      : (options.defaultRelayTtl ?? CLIPBOARD_RELAY_MAX_TTL)
+  );
+  const payload = {
+    ...rawPayload,
+    messageId,
+    originPeerId,
+    relayTtl,
+    sentAt: rawPayload.sentAt || Date.now(),
+    sourceUserId: rawPayload.sourceUserId || identity?.userId,
+    sourceDisplayName: rawPayload.sourceDisplayName || identity?.displayName
+  };
+  return payload;
+}
+
+function sendClipboardToPeer(peer, payload) {
+  const socket = new WebSocket(`ws://${peer.hostAddress}:${peer.port}`);
+  const correlationId = randomUUID();
+  const ackKey = `${payload.messageId}:peer:${peer.peerId}`;
+  socket.on("open", () => {
+    transportService.sendClipboardWithRetry(
+      payload.messageId,
+      () => {
+        transportService.send(socket, "CLIPBOARD_SYNC", correlationId, { ...payload, ackKey });
+      },
+      { ackKey }
+    );
+  });
+  socket.on("message", (buffer) => {
+    try {
+      const incoming = JSON.parse(buffer.toString());
+      if (incoming?.type !== "CLIPBOARD_ACK") return;
+      const parsedAck = clipboardAckSchema.safeParse(incoming.payload);
+      if (!parsedAck.success) return;
+      const incomingAckKey = parsedAck.data.ackKey || ackKey;
+      transportService.ackClipboard(incomingAckKey);
+      try {
+        socket.close();
+      } catch {
+        /* no-op */
+      }
+    } catch {
+      /* no-op */
+    }
+  });
+  socket.on("close", () => {
+    transportService.ackClipboard(ackKey);
+  });
+  socket.on("error", () => {
+    try {
+      socket.close();
+    } catch {
+      /* no-op */
+    }
+  });
+}
+
+function routeClipboardEvent(rawPayload, options = {}) {
+  const payload = normalizeClipboardPayload(rawPayload, {
+    defaultRelayTtl: options.defaultRelayTtl
+  });
+  const messageId = payload.messageId;
+  if (!messageId) return;
+
+  if (hasSeenClipboardMessage(messageId)) {
+    logger.info(`[ClipboardRoute] Dropping already-seen message ${messageId}`);
+    return;
+  }
+  markClipboardMessageSeen(messageId);
+
+  const identity = identityService?.get();
+  const canRelay = payload.relayTtl > 0;
+  const forwardedPayload = canRelay
+    ? { ...payload, relayTtl: Math.max(0, payload.relayTtl - 1) }
+    : null;
+
+  if (canRelay && forwardedPayload) {
+    for (const ws of workspaceService.listWorkspaces()) {
+      for (const session of sessionService.listConnectedSessionsForWorkspace(ws.workspaceId)) {
+        const correlationId = randomUUID();
+        const ackKey = `${payload.messageId}:workspace:${ws.workspaceId}:${session.clientId}`;
+        transportService.sendClipboardWithRetry(
+          payload.messageId,
+          () => {
+            transportService.send(session.socket, "CLIPBOARD_SYNC", correlationId, {
+              ...forwardedPayload,
+              ackKey
+            });
+          },
+          { ackKey }
+        );
+      }
+    }
+
+    if (transportService.client && activeSessionToken) {
+      const correlationId = randomUUID();
+      const ackKey = `${payload.messageId}:client:${activeSessionToken}`;
+      transportService.sendClipboardWithRetry(
+        payload.messageId,
+        () => {
+          transportService.send(transportService.client, "CLIPBOARD_SYNC", correlationId, {
+            ...forwardedPayload,
+            ackKey,
+            sessionToken: activeSessionToken
+          });
+        },
+        { ackKey }
+      );
+    }
+
+    for (const peer of discoveredClipboardPeers) {
+      if (identity && peer.peerId === identity.userId) continue;
+      if (payload.originPeerId && peer.peerId === payload.originPeerId) continue;
+      sendClipboardToPeer(peer, forwardedPayload);
+    }
+  } else {
+    logger.info(`[ClipboardRoute] relay ttl exhausted for ${messageId}`);
+  }
+
+  sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+}
+
+clipboardService.on("manual-clipboard-capture", (item) => {
+  const payload = normalizeClipboardPayload(item, {
+    defaultRelayTtl: CLIPBOARD_RELAY_MAX_TTL
+  });
+  routeClipboardEvent(payload, { defaultRelayTtl: CLIPBOARD_RELAY_MAX_TTL });
+});
+
 const SHARED_PORT = 7788;
 let serverStarted = false;
 
@@ -44,6 +238,8 @@ let serverStarted = false;
 let lastJoinedWorkspace = null;
 let activeSessionToken = null;
 let activeJoinedWorkspaceId = null;
+/** @type {Array<{peerId:string,hostName:string,hostAddress:string,port:number}>} */
+let discoveredClipboardPeers = [];
 
 // Per-workspace watcher state
 /** @type {Map<string, { watcher: import("chokidar").FSWatcher, timers: Map<string, NodeJS.Timeout> }>} */
@@ -97,6 +293,21 @@ const broadcastClientsUpdate = (workspaceId) => {
   });
 };
 
+const cleanupRuntimeResources = () => {
+  if (runtimeCleanedUp) return;
+  runtimeCleanedUp = true;
+  clipboardService.stopPolling();
+  clipboardService.clearHistory();
+  seenClipboardMessages.clear();
+  discoveredClipboardPeers = [];
+  transportService.clearClipboardRetries();
+  globalShortcut.unregisterAll();
+  for (const wsId of Array.from(workspaceWatchers.keys())) teardownWorkspaceWatcher(wsId);
+  transportService.stopServer();
+  transportService.disconnectClient();
+  discovery.destroy();
+};
+
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 1320,
@@ -113,6 +324,47 @@ const createWindow = async () => {
     await mainWindow.loadURL(devServer);
   } else {
     await mainWindow.loadFile(path.join(import.meta.dirname, "../dist/index.html"));
+  }
+};
+
+const createClipboardWindow = async () => {
+  // workArea excludes the macOS menu bar (top) and Dock (bottom/side), and
+  // the Windows taskbar — so the window is always fully visible on any platform.
+  const { x: areaX, y: areaY, width: areaWidth } = screen.getPrimaryDisplay().workArea;
+
+  clipboardWindow = new BrowserWindow({
+    width: 360,
+    height: 600,
+    x: areaX + areaWidth - 380,   // 20px margin from right edge of work area
+    y: areaY + 20,                 // 20px below the top of work area (clears menu bar on macOS)
+    frame: false,
+    resizable: true,
+    skipTaskbar: true,
+    alwaysOnTop: false,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  // Hide instead of destroy — keeps the service alive, re-showable via shortcut.
+  // Exception: allow the close when the app is actually quitting (e.g. Cmd+Q on macOS).
+  clipboardWindow.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      clipboardWindow.hide();
+    }
+  });
+
+  const devServer = process.env.VITE_DEV_SERVER_URL;
+  if (devServer) {
+    await clipboardWindow.loadURL(`${devServer}?window=clipboard`);
+  } else {
+    await clipboardWindow.loadFile(
+      path.join(import.meta.dirname, "../dist/index.html"),
+      { query: { window: "clipboard" } }
+    );
   }
 };
 
@@ -419,6 +671,46 @@ const onWireMessage = async (socket, message) => {
     }
     transportService.finalizeTransfer(parsed.data.transferId, client.clientId, false, parsed.data.reason);
   }
+
+  if (message.type === "CLIPBOARD_SYNC") {
+    const parsed = clipboardSyncSchema.safeParse(message.payload);
+    if (!parsed.success) {
+      sendError(socket, message.correlationId, "INVALID_CLIPBOARD_SYNC", "Clipboard sync payload is invalid");
+      return;
+    }
+    const payload = normalizeClipboardPayload(parsed.data, {
+      defaultRelayTtl: CLIPBOARD_RELAY_MAX_TTL
+    });
+    transportService.send(socket, "CLIPBOARD_ACK", message.correlationId, {
+      messageId: payload.messageId,
+      ackKey: payload.ackKey,
+      ackedAt: Date.now()
+    });
+
+    if (payload.sessionToken) {
+      const client = sessionService.validateToken(payload.sessionToken, socket);
+      if (!client) {
+        sendError(socket, message.correlationId, "UNAUTHORIZED", "Invalid session token");
+        return;
+      }
+    }
+
+    clipboardService.writeFromRemote(payload);
+    routeClipboardEvent(payload, {
+      defaultRelayTtl: payload.relayTtl
+    });
+    return;
+  }
+
+  if (message.type === "CLIPBOARD_ACK") {
+    const parsed = clipboardAckSchema.safeParse(message.payload);
+    if (!parsed.success) {
+      sendError(socket, message.correlationId, "INVALID_CLIPBOARD_ACK", "Clipboard ACK payload is invalid");
+      return;
+    }
+    transportService.ackClipboard(parsed.data.ackKey || parsed.data.messageId);
+    return;
+  }
 };
 
 const onConnectionClosed = (_socket, removedClients) => {
@@ -442,23 +734,551 @@ const ensureServerStarted = () => {
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
+
+/**
+ * Why VBScript / wscript failed:
+ * When the user presses Ctrl+Shift+D, both Ctrl AND Shift are physically held.
+ * Any Ctrl+C simulation that Shift is still held as "GetKeyState(VK_SHIFT)=DOWN"
+ * – so the target app (Chrome, Word, etc.) receives Ctrl+SHIFT+C, not Ctrl+C.
+ * Ctrl+Shift+C opens DevTools in Chrome, which is NOT what we want.
+ *
+ * The ONLY fix: inject a "Shift UP" via Win32 SendInput BEFORE the Ctrl+C,
+ * which temporarily releases Shift from the system's key state.
+ *
+ * Solution: compile a tiny C# helper EXE once at startup that calls SendInput
+ * with the correct sequence: [Shift UP] [Ctrl+C] — runs in ~5ms.
+ */
+
+/** Path to the pre-compiled Windows copy-selection helper */
+let copyHelperExe = null;
+
+/** Path to the pre-compiled Windows paste helper */
+let pasteHelperExe = null;
+
+/**
+ * Writes and compiles a tiny C# EXE that properly injects:
+ *   Shift UP → Ctrl DOWN → C DOWN → C UP → Ctrl UP
+ * This avoids the Ctrl+Shift+C modifier conflict.
+ *
+ * Uses csc.exe from .NET Framework (present on all modern Windows).
+ * Only compiled once; subsequent runs reuse the cached EXE.
+ */
+async function prepareWindowsCopyHelper() {
+  if (process.platform !== "win32") return;
+
+  const tmpDir = os.tmpdir();
+  const csPath  = path.join(tmpDir, "LanSyncCopyHelper.cs");
+  const exePath = path.join(tmpDir, "LanSyncCopyHelper.exe");
+
+  // Reuse cached EXE from a previous run of the app
+  if (fs.existsSync(exePath)) {
+    copyHelperExe = exePath;
+    logger.info(`[Clipboard] Reusing compiled helper: ${exePath}`);
+    return;
+  }
+
+  // C# source that correctly injects Shift UP then Ctrl+C via SendInput
+  const csSource = `
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+class LanSyncCopyHelper {
+    [StructLayout(LayoutKind.Sequential)]
+    struct INPUT {
+        public uint type;
+        public INPUTUNION u;
+    }
+    [StructLayout(LayoutKind.Explicit)]
+    struct INPUTUNION {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public MOUSEINPUT mi; // largest member, sets correct struct size
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT {
+        public ushort wVk, wScan;
+        public uint dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT {
+        public int dx, dy;
+        public uint mouseData, dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [DllImport("user32.dll")]
+    static extern uint SendInput(uint n, INPUT[] i, int sz);
+
+    static INPUT K(ushort vk, bool up = false) {
+        var x = new INPUT();
+        x.type = 1; // INPUT_KEYBOARD
+        x.u.ki.wVk = vk;
+        x.u.ki.dwFlags = up ? 2u : 0u; // KEYEVENTF_KEYUP = 2
+        return x;
+    }
+    static void Main() {
+        // Small delay so any pending events from Ctrl+Shift+D are flushed
+        Thread.Sleep(50);
+        // Fix: release Shift before Ctrl+C so target app sees pure Ctrl+C
+        SendInput(5, new INPUT[] {
+            K(0x10, up:true),  // Shift UP   (fixes the Ctrl+SHIFT+C bug)
+            K(0x11),           // Ctrl DOWN
+            K(0x43),           // C DOWN
+            K(0x43, up:true),  // C UP
+            K(0x11, up:true),  // Ctrl UP
+        }, Marshal.SizeOf(typeof(INPUT)));
+    }
+}
+`;
+
+  try {
+    fs.writeFileSync(csPath, csSource, "utf8");
+
+    // Locate csc.exe (ships with .NET Framework on all modern Windows)
+    const cscCandidates = [
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v2.0.50727\\csc.exe"
+    ];
+    const cscPath = cscCandidates.find((p) => fs.existsSync(p));
+
+    if (!cscPath) {
+      logger.warn("[Clipboard] csc.exe not found – Ctrl+Shift+D may capture stale clipboard on Windows");
+      return;
+    }
+
+    await execAsync(`"${cscPath}" /nologo /target:exe /out:"${exePath}" "${csPath}"`);
+    copyHelperExe = exePath;
+    logger.info(`[Clipboard] Copy helper compiled successfully: ${exePath}`);
+  } catch (err) {
+    logger.warn("[Clipboard] Failed to compile copy helper:", err.message);
+  }
+}
+
+/**
+ * Compiles a tiny C# EXE that injects:
+ *   Shift UP → Ctrl DOWN → V DOWN → V UP → Ctrl UP
+ * This releases the Shift modifier left over from Ctrl+Shift+F,
+ * then pastes the clipboard content into the focused window.
+ */
+async function preparePasteHelper() {
+  if (process.platform !== "win32") return;
+
+  const tmpDir  = os.tmpdir();
+  const csPath  = path.join(tmpDir, "LanSyncPasteHelper.cs");
+  const exePath = path.join(tmpDir, "LanSyncPasteHelper.exe");
+
+  if (fs.existsSync(exePath)) {
+    pasteHelperExe = exePath;
+    logger.info(`[Clipboard] Reusing paste helper: ${exePath}`);
+    return;
+  }
+
+  const csSource = `
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+class LanSyncPasteHelper {
+    [StructLayout(LayoutKind.Sequential)]
+    struct INPUT {
+        public uint type;
+        public INPUTUNION u;
+    }
+    [StructLayout(LayoutKind.Explicit)]
+    struct INPUTUNION {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public MOUSEINPUT mi;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT {
+        public ushort wVk, wScan;
+        public uint dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT {
+        public int dx, dy;
+        public uint mouseData, dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [DllImport("user32.dll")]
+    static extern uint SendInput(uint n, INPUT[] i, int sz);
+
+    static INPUT K(ushort vk, bool up = false) {
+        var x = new INPUT();
+        x.type = 1;
+        x.u.ki.wVk = vk;
+        x.u.ki.dwFlags = up ? 2u : 0u;
+        return x;
+    }
+    static void Main() {
+        // Wait for clipboard write to settle before pasting
+        Thread.Sleep(150);
+        // Release Shift (held from Ctrl+Shift+F) then send Ctrl+V
+        SendInput(5, new INPUT[] {
+            K(0x10, up:true),  // Shift UP
+            K(0x11),           // Ctrl DOWN
+            K(0x56),           // V DOWN
+            K(0x56, up:true),  // V UP
+            K(0x11, up:true),  // Ctrl UP
+        }, Marshal.SizeOf(typeof(INPUT)));
+    }
+}
+`;
+
+  try {
+    fs.writeFileSync(csPath, csSource, "utf8");
+    const cscCandidates = [
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v2.0.50727\\csc.exe"
+    ];
+    const cscPath = cscCandidates.find((p) => fs.existsSync(p));
+    if (!cscPath) {
+      logger.warn("[Clipboard] csc.exe not found – Ctrl+Shift+F auto-paste unavailable");
+      return;
+    }
+    await execAsync(`"${cscPath}" /nologo /target:exe /out:"${exePath}" "${csPath}"`);
+    pasteHelperExe = exePath;
+    logger.info(`[Clipboard] Paste helper compiled successfully: ${exePath}`);
+  } catch (err) {
+    logger.warn("[Clipboard] Failed to compile paste helper:", err.message);
+  }
+}
+
+/**
+ * Returns true if an execAsync error is caused by macOS Accessibility permission being denied.
+ * Error code -1743 = "Not authorized to send Apple events to System Events."
+ */
+function isMacAccessibilityError(err) {
+  const msg = (err?.message ?? "").toLowerCase();
+  return msg.includes("-1743") || msg.includes("not authorized") || msg.includes("assistive devices");
+}
+
+/**
+ * Simulate Ctrl+V in the currently focused window.
+ * Handles the Shift-key collision from Ctrl+Shift+F via the paste helper EXE.
+ */
+async function simulatePasteKeystroke() {
+  try {
+    if (process.platform === "darwin") {
+      // Cmd+Shift+F ke turant baad Shift key abhi held reh sakti hai.
+      // Chhota buffer dene se modifier state settle hoti hai, especially image payload paste ke liye.
+      await new Promise((r) => setTimeout(r, 180));
+      await execAsync(
+        `osascript -e 'tell application "System Events" to keystroke "v" using command down'`,
+        { timeout: 5000 }
+      );
+    } else if (process.platform === "win32") {
+      if (pasteHelperExe && fs.existsSync(pasteHelperExe)) {
+        await execAsync(`"${pasteHelperExe}"`);
+      } else {
+        logger.warn("[simulatePaste] No paste helper available – user must press Ctrl+V manually");
+      }
+    }
+  } catch (err) {
+    logger.warn("[simulatePaste] Failed:", err.message);
+    if (process.platform === "darwin" && isMacAccessibilityError(err)) {
+      sendToClipboardWindows("clipboard:permission-error",
+        "Grant Accessibility access to PcConnector in System Settings → Privacy & Security → Accessibility, then restart the app.");
+    }
+  }
+}
+
+/**
+ * Simulate Ctrl+C in the currently focused window.
+ * Returns true if the clipboard content changed after the simulation.
+ */
+async function simulateCopyKeystroke() {
+  // Snapshot text, image AND file paths before the simulated Ctrl+C
+  const beforeText  = clipboard.readText();
+  const beforeImage = clipboard.readImage().toDataURL();
+  const beforePaths = JSON.stringify(clipboard.readFilePaths?.() ?? []);
+
+  try {
+    if (process.platform === "darwin") {
+      // ── macOS: two strategies depending on which app is focused ──────────
+      // osascript `keystroke "c"` works for EXTERNAL apps (Safari, Finder…)
+      // but Electron's renderer ignores synthetic System Events keystrokes,
+      // so it FAILS when our own window is active.
+      // Solution: use webContents.copy() when Electron is focused.
+      const isElectronFocused = mainWindow != null && mainWindow.isFocused();
+      if (isElectronFocused) {
+        logger.info("[simulateCopy] macOS: Electron focused → webContents.copy()");
+        mainWindow.webContents.copy();
+        await new Promise((r) => setTimeout(r, 200));
+      } else {
+        logger.info("[simulateCopy] macOS: external app focused → osascript");
+        try {
+          await execAsync(
+            `osascript -e 'tell application "System Events" to keystroke "c" using command down'`,
+            { timeout: 5000 }
+          );
+        } catch (osaErr) {
+          logger.warn("[simulateCopy] osascript failed:", osaErr.message);
+          if (isMacAccessibilityError(osaErr)) {
+            sendToClipboardWindows("clipboard:permission-error",
+              "Grant Accessibility access to PcConnector in System Settings → Privacy & Security → Accessibility, then restart the app.");
+          }
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } else if (process.platform === "win32") {
+      if (copyHelperExe && fs.existsSync(copyHelperExe)) {
+        // Compiled C# EXE — starts in ~5ms, correctly handles Shift modifier
+        await execAsync(`"${copyHelperExe}"`);
+        await new Promise((r) => setTimeout(r, 250));
+      } else {
+        // No helper compiled: just wait and read whatever is in clipboard
+        logger.warn("[simulateCopy] No copy helper available – reading current clipboard");
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+  } catch (err) {
+    logger.warn("[simulateCopy] Failed:", err.message);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  const afterText  = clipboard.readText();
+  const afterImage = clipboard.readImage().toDataURL();
+  const afterPaths = JSON.stringify(clipboard.readFilePaths?.() ?? []);
+
+  // Consider changed if text, image bitmap, OR file paths changed
+  const changed = afterText !== beforeText || afterImage !== beforeImage || afterPaths !== beforePaths;
+  logger.info(`[simulateCopy] ${changed ? "CHANGED" : "unchanged"} | text: ${afterText !== beforeText} | image: ${afterImage !== beforeImage} | paths: ${afterPaths !== beforePaths}`);
+  return changed;
+}
+
+/**
+ * Query every open File Explorer window via PowerShell COM Shell.Application
+ * and return the first selected image file path.
+ * This is a reliable fallback for when Ctrl+C simulation doesn't produce
+ * a readable clipboard entry (e.g. CF_HDROP vs CF_BITMAP mismatch).
+ */
+const IMAGE_EXTS_FOR_EXPLORER = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico"];
+
+/**
+ * macOS equivalent of getExplorerSelectedImagePath().
+ * Uses AppleScript to query Finder for the first selected item, then checks
+ * if it is an image file.  Returns the POSIX path string, or null.
+ */
+async function getFinderSelectedImagePath() {
+  if (process.platform !== "darwin") return null;
+  try {
+    const { stdout } = await execAsync(
+      `osascript -e 'tell application "Finder"' ` +
+      `-e 'set sel to selection' ` +
+      `-e 'if sel is {} then return ""' ` +
+      `-e 'return POSIX path of (item 1 of sel as alias)' ` +
+      `-e 'end tell'`,
+      { timeout: 3000 }
+    );
+    const p = stdout.trim();
+    if (p && IMAGE_EXTS_FOR_EXPLORER.some((ext) => p.toLowerCase().endsWith(ext))) {
+      logger.info(`[getFinderSelectedImagePath] found: ${p}`);
+      return p;
+    }
+    return null;
+  } catch (err) {
+    logger.warn("[getFinderSelectedImagePath] AppleScript query failed:", err.message);
+    return null;
+  }
+}
+
+async function getExplorerSelectedImagePath() {
+  if (process.platform !== "win32") return null;
+  // PowerShell: iterate open Explorer windows, collect selected item paths
+  const psScript = [
+    "$shell = New-Object -ComObject Shell.Application",
+    "$paths = @()",
+    "foreach ($window in $shell.Windows()) {",
+    "  try { $items = $window.Document.SelectedItems()",
+    "  foreach ($item in $items) { $paths += $item.Path } } catch {} }",
+    "$paths -join '|'"
+  ].join("; ");
+  try {
+    const { stdout } = await execAsync(
+      `powershell -NoProfile -NonInteractive -Command "${psScript}"`
+    );
+    const paths = stdout.trim().split("|").filter(Boolean);
+    const imagePath = paths.find((fp) =>
+      IMAGE_EXTS_FOR_EXPLORER.some((ext) => fp.toLowerCase().endsWith(ext))
+    );
+    logger.info(`[getExplorerSelectedImagePath] explorer paths: ${JSON.stringify(paths)} | image: ${imagePath ?? "none"}`);
+    return imagePath ?? null;
+  } catch (err) {
+    logger.warn("[getExplorerSelectedImagePath] PowerShell query failed:", err.message);
+    return null;
+  }
+}
+
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
+
+  // Compile Windows keystroke helpers (once per machine, non-blocking on failure)
+  await prepareWindowsCopyHelper();
+  await preparePasteHelper();
+
   identityService = new IdentityService(app.getPath("userData"));
   await identityService.load();
+  ensureServerStarted();
+  const identity = identityService.get();
+  if (identity) {
+    discovery.advertiseClipboardPeer({
+      peerId: identity.userId,
+      hostName: identity.displayName,
+      port: SHARED_PORT
+    });
+  }
+  discovery.startBrowsingClipboardPeers((peers) => {
+    const selfId = identityService?.get()?.userId;
+    discoveredClipboardPeers = peers.filter((p) => p.peerId !== selfId);
+  });
   await createWindow();
+  await createClipboardWindow();
+  // Keep OS copy (Ctrl/Cmd+C) and app-share copy separated:
+  // only dedicated app shortcuts should publish to shared clipboard.
+  if (ENABLE_AUTO_CLIPBOARD_MONITOR) {
+    clipboardService.startPolling();
+  }
+
+  // -----------------------------------------------------------------------
+  // Global shortcuts
+  //   Win/Linux: Ctrl+Shift+D   → generic capture (text/image) and share
+  //   macOS:     Option+Cmd+C   → generic capture (text/image) and share
+  //   All:       Ctrl/Cmd+Shift+F  → inject top shared item and paste
+  // -----------------------------------------------------------------------
+  const isMac      = process.platform === "darwin";
+  const copyAccel = isMac ? "Alt+Command+C" : "CommandOrControl+Shift+D";
+  const pasteAccel = isMac ? "Command+Shift+F" : "CommandOrControl+Shift+F";
+
+  const runCopyCaptureFlow = async (mode = "auto", acceleratorLabel = "Ctrl+Shift+D") => {
+    logger.info(`[Shortcut] ${acceleratorLabel} fired — starting capture flow (mode=${mode})`);
+
+    // Step 1: Simulate Ctrl+C in the focused app (covers text selections, etc.)
+    await simulateCopyKeystroke();
+
+    // Step 2: Try to capture from clipboard (text, bitmap, or CF_HDROP file paths)
+    let item = clipboardService.captureNow({ mode });
+    logger.info(`[Shortcut] captureNow result: ${item ? item.historyId : "null"}`);
+
+    // Step 3: FALLBACK — if nothing captured, ask the OS file manager which
+    //   image file the user has selected, then load it from disk.
+    //   • Windows: CF_HDROP file paths via PowerShell + Shell.Application
+    //   • macOS:   Finder selection via AppleScript
+    //   This covers the case where Electron's clipboard API cannot read a
+    //   file-reference clipboard entry as a bitmap.
+    if (!item) {
+      const fallbackPath = process.platform === "darwin"
+        ? await getFinderSelectedImagePath()
+        : await getExplorerSelectedImagePath();
+
+      if (fallbackPath && fs.existsSync(fallbackPath)) {
+        try {
+          const img = nativeImage.createFromPath(fallbackPath);
+          if (!img.isEmpty()) {
+            // Write the bitmap so captureNow() can read it normally
+            clipboard.writeImage(img);
+            logger.info(`[Shortcut] File-manager image preloaded to clipboard: ${fallbackPath}`);
+            item = clipboardService.captureNow({ mode: "image" });
+          } else {
+            logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${fallbackPath}`);
+          }
+        } catch (err) {
+          logger.warn("[Shortcut] Failed to load file-manager image:", err.message);
+        }
+      }
+    }
+
+    // Step 4: Notify UI
+    if (item) {
+      sendToClipboardWindows("clipboard:captured", item);
+      sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+    } else {
+      sendToClipboardWindows("clipboard:captured", null);
+    }
+  };
+
+  globalShortcut.register(copyAccel, async () => {
+    await runCopyCaptureFlow("auto", isMac ? "Option+Cmd+C" : "Ctrl+Shift+D");
+  });
+
+  globalShortcut.register(pasteAccel, async () => {
+    logger.info("[Shortcut] Ctrl+Shift+F — writing top shared item to OS clipboard");
+
+    // Step 1: Write top history item to OS clipboard as CF_BITMAP
+    const item = clipboardService.pasteTop();
+
+    if (item) {
+      // Step 2 (Windows image only): Also write as real system CF_HDROP via PowerShell.
+      //   Electron's clipboard.writeBuffer("CF_HDROP") writes a CUSTOM registered format
+      //   (not system CF_HDROP ID=15) that File Explorer does NOT understand.
+      //   PowerShell's Clipboard.SetFileDropList() correctly writes system CF_HDROP.
+      if (item.image && process.platform === "win32") {
+        try {
+          const tmpImg = nativeImage.createFromDataURL(item.image);
+          if (!tmpImg.isEmpty()) {
+            const tmpFile = path.join(os.tmpdir(), `lansync-paste-${Date.now()}.png`);
+            fs.writeFileSync(tmpFile, tmpImg.toPNG());
+            // -STA flag required: clipboard COM APIs need Single-Threaded Apartment
+            const psCmd = [
+              "Add-Type -AssemblyName System.Windows.Forms",
+              "$f = New-Object System.Collections.Specialized.StringCollection",
+              `[void]$f.Add('${tmpFile.replace(/\\/g, "\\\\").replace(/'/g, "''")}')`,
+              "[System.Windows.Forms.Clipboard]::SetFileDropList($f)"
+            ].join("; ");
+            await execAsync(`powershell -STA -NoProfile -NonInteractive -Command "${psCmd}"`);
+            logger.info(`[Shortcut] CF_HDROP written via PowerShell: ${tmpFile}`);
+          }
+        } catch (hdropErr) {
+          // Non-fatal: CF_BITMAP is still usable in apps that accept inline image paste
+          logger.warn("[Shortcut] CF_HDROP PowerShell write failed:", hdropErr.message);
+        }
+      }
+
+      // Step 3: Simulate Ctrl+V in the focused app
+      await simulatePasteKeystroke();
+      logger.info(`[Shortcut] Ctrl+Shift+F — auto-pasted item ${item.historyId}`);
+    } else {
+      logger.info("[Shortcut] Ctrl+Shift+F — history is empty, nothing to paste");
+    }
+
+    sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+    sendToClipboardWindows("clipboard:pasted", item ?? null);
+  });
+
+  const toggleAccel = isMac ? "Command+Shift+H" : "CommandOrControl+Shift+H";
+  globalShortcut.register(toggleAccel, () => {
+    if (!clipboardWindow || clipboardWindow.isDestroyed()) return;
+    if (clipboardWindow.isVisible()) {
+      clipboardWindow.hide();
+    } else {
+      clipboardWindow.show();
+      clipboardWindow.focus();
+    }
+  });
+
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
+      await createClipboardWindow();
+    } else if (clipboardWindow && !clipboardWindow.isVisible()) {
+      clipboardWindow.show();
     }
   });
 });
 
+// Allow Cmd+Q (and programmatic app.quit()) to close every window, including the
+// clipboard window whose close event is otherwise intercepted to hide instead of destroy.
+app.on("before-quit", () => {
+  isQuitting = true;
+  cleanupRuntimeResources();
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    for (const wsId of Array.from(workspaceWatchers.keys())) teardownWorkspaceWatcher(wsId);
-    transportService.stopServer();
-    transportService.disconnectClient();
-    discovery.destroy();
+    cleanupRuntimeResources();
     app.quit();
   }
 });
@@ -470,11 +1290,44 @@ ipcMain.handle("identity:get", async () => {
   return { ok: true, identity: identityService?.get() ?? null };
 });
 
+ipcMain.handle("clipboard:get-history", async () => {
+  return clipboardService.getHistory();
+});
+
+ipcMain.handle("clipboard:write", async (_event, payload) => {
+  if (payload?.historyId) {
+    clipboardService.setActiveHistoryItem(payload.historyId);
+    return { ok: true };
+  }
+
+  return { ok: false };
+});
+
+ipcMain.handle("clipboard-window:hide", () => {
+  if (clipboardWindow && !clipboardWindow.isDestroyed()) {
+    clipboardWindow.hide();
+  }
+});
+
+
+ipcMain.handle("app:quit", () => {
+  isQuitting = true;
+  cleanupRuntimeResources();
+  app.quit();
+  return { ok: true };
+});
+
 ipcMain.handle("identity:set", async (_event, payload) => {
   try {
     const rawName = payload?.displayName;
     const validated = displayNameSchema.parse(rawName);
     const identity = await identityService.set(validated);
+    ensureServerStarted();
+    discovery.advertiseClipboardPeer({
+      peerId: identity.userId,
+      hostName: identity.displayName,
+      port: SHARED_PORT
+    });
     return { ok: true, identity };
   } catch (error) {
     return {
@@ -830,6 +1683,9 @@ ipcMain.handle("client:join-workspace", async (_event, workspace) => {
         } else if (message.type === "JOIN_ACCEPT") {
           activeSessionToken = message.payload.sessionToken;
           activeJoinedWorkspaceId = message.payload.workspaceId;
+          if (ENABLE_AUTO_CLIPBOARD_MONITOR) {
+            clipboardService.startPolling();
+          }
           done({ ok: true, status: "connected" });
         } else if (message.type === "JOIN_REJECT") {
           activeSessionToken = null;

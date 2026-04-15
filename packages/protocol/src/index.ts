@@ -28,7 +28,9 @@ export const messageTypes = [
   "ERROR",
   "PING",
   "PONG",
-  "SESSION_STOP"
+  "SESSION_STOP",
+  "CLIPBOARD_SYNC",
+  "CLIPBOARD_ACK"
 ] as const;
 
 export const protocolVersion = "1.1.0";
@@ -190,4 +192,25 @@ export const errorPayloadSchema = z.object({
   retryable: z.boolean().default(false),
   source: z.enum(["main", "renderer", "network", "filesystem"]),
   details: z.record(z.string(), z.any()).optional()
+});
+
+export const clipboardSyncSchema = z.object({
+  historyId: z.string().uuid(),
+  text: z.string().optional(),
+  image: z.string().optional(),
+  timestamp: z.number(),
+  messageId: z.string().uuid().optional(),
+  ackKey: z.string().min(1).optional(),
+  originPeerId: z.string().uuid().optional(),
+  relayTtl: z.number().int().nonnegative().optional(),
+  sentAt: z.number().optional(),
+  sessionToken: z.string().min(16).optional(),
+  sourceUserId: z.string().uuid().optional(),
+  sourceDisplayName: z.string().min(1).max(64).optional()
+});
+
+export const clipboardAckSchema = z.object({
+  messageId: z.string().uuid(),
+  ackKey: z.string().min(1).optional(),
+  ackedAt: z.number().optional()
 });

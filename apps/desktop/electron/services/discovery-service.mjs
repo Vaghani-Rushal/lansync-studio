@@ -24,6 +24,9 @@ export class DiscoveryService {
     /** @type {Map<string, any>} workspaceId -> DiscoveryWorkspace */
     this.workspaces = new Map();
     this.pruneInterval = null;
+    this.clipboardAdvertisement = null;
+    this.clipboardBrowser = null;
+    this.clipboardPeers = new Map();
   }
 
   advertiseWorkspace({ workspaceName, hostName, workspaceId, sessionCode, port }) {
@@ -116,9 +119,74 @@ export class DiscoveryService {
     this.workspaces.clear();
   }
 
+  advertiseClipboardPeer({ peerId, hostName, port }) {
+    this.stopAdvertisingClipboardPeer();
+    this.clipboardAdvertisement = this.bonjour.publish({
+      name: `${hostName} / clipboard / ${peerId.slice(0, 8)}`,
+      type: "pcclip",
+      protocol: "tcp",
+      port,
+      txt: {
+        peerId,
+        hostName,
+        appVersion: "0.1.0",
+        mode: "clipboard_peer"
+      }
+    });
+    return peerId;
+  }
+
+  stopAdvertisingClipboardPeer() {
+    if (!this.clipboardAdvertisement) return;
+    try {
+      this.clipboardAdvertisement.stop();
+    } catch {
+      /* no-op */
+    }
+    this.clipboardAdvertisement = null;
+  }
+
+  startBrowsingClipboardPeers(onChange) {
+    this.clipboardBrowser?.stop();
+    this.clipboardBrowser = this.bonjour.find({ type: "pcclip", protocol: "tcp" });
+
+    this.clipboardBrowser.on("up", (service) => {
+      const peerId = service?.txt?.peerId ?? service.fqdn;
+      const existing = this.clipboardPeers.get(peerId);
+      this.clipboardPeers.set(peerId, {
+        peerId,
+        hostName: service?.txt?.hostName ?? service.host,
+        hostAddress: service.referer?.address || service.addresses?.[0] || "0.0.0.0",
+        port: service.port,
+        lastSeenAt: Date.now()
+      });
+      // Avoid noisy UI updates when Bonjour re-announces unchanged peers.
+      if (!existing || existing.hostAddress !== (service.referer?.address || service.addresses?.[0] || "0.0.0.0") || existing.port !== service.port || existing.hostName !== (service?.txt?.hostName ?? service.host)) {
+        onChange(Array.from(this.clipboardPeers.values()));
+      }
+    });
+
+    this.clipboardBrowser.on("down", (service) => {
+      const peerId = service?.txt?.peerId ?? service.fqdn;
+      this.clipboardPeers.delete(peerId);
+      onChange(Array.from(this.clipboardPeers.values()));
+    });
+
+    // No TTL pruning for clipboard peers; rely on Bonjour "down" events.
+    // This prevents peers from being dropped prematurely and sync working only once.
+  }
+
+  stopBrowsingClipboardPeers() {
+    this.clipboardBrowser?.stop();
+    this.clipboardBrowser = null;
+    this.clipboardPeers.clear();
+  }
+
   destroy() {
     this.stopAdvertising();
+    this.stopAdvertisingClipboardPeer();
     this.stopBrowsing();
+    this.stopBrowsingClipboardPeers();
     this.bonjour.destroy();
   }
 }
