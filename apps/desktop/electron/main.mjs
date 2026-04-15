@@ -713,12 +713,23 @@ async function simulateCopyKeystroke() {
 
   try {
     if (process.platform === "darwin") {
-      await execAsync(
-        `osascript -e 'tell application "System Events" to keystroke "c" using command down'`
-      );
-      // 400ms: Electron renderer (and some native apps) need extra time to process
-      // the synthetic Cmd+C and flush the new content to the clipboard.
-      await new Promise((r) => setTimeout(r, 400));
+      // ── macOS: two strategies depending on which app is focused ──────────
+      // osascript `keystroke "c"` works for EXTERNAL apps (Safari, Finder…)
+      // but Electron's renderer ignores synthetic System Events keystrokes,
+      // so it FAILS when our own window is active.
+      // Solution: use webContents.copy() when Electron is focused.
+      const isElectronFocused = mainWindow != null && mainWindow.isFocused();
+      if (isElectronFocused) {
+        logger.info("[simulateCopy] macOS: Electron focused → webContents.copy()");
+        mainWindow.webContents.copy();
+        await new Promise((r) => setTimeout(r, 200));
+      } else {
+        logger.info("[simulateCopy] macOS: external app focused → osascript");
+        await execAsync(
+          `osascript -e 'tell application "System Events" to keystroke "c" using command down'`
+        );
+        await new Promise((r) => setTimeout(r, 400));
+      }
     } else if (process.platform === "win32") {
       if (copyHelperExe && fs.existsSync(copyHelperExe)) {
         // Compiled C# EXE — starts in ~5ms, correctly handles Shift modifier
