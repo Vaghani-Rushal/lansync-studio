@@ -269,33 +269,8 @@ export class WorkspaceService {
         { relativePath }
       );
     }
-
-    // Write with short retry for transient Windows locks (AV scanner, Explorer thumbnail, Word auto-preview).
-    const maxAttempts = 5;
-    let lastErr;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await fs.writeFile(fullPath, buffer);
-        return { ok: true };
-      } catch (err) {
-        lastErr = err;
-        const code = err?.code;
-        const retryable = code === "EPERM" || code === "EBUSY" || code === "EACCES";
-        if (!retryable || attempt === maxAttempts) break;
-        await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
-      }
-    }
-
-    if (lastErr?.code === "EPERM" || lastErr?.code === "EBUSY" || lastErr?.code === "EACCES") {
-      throw new AppError(
-        "FILE_LOCKED",
-        `Cannot save "${relativePath}" — the file is open in another program (e.g. Word). Close it and try again.`,
-        true,
-        "filesystem",
-        { relativePath, cause: lastErr.code }
-      );
-    }
-    throw lastErr;
+    await fs.writeFile(fullPath, buffer);
+    return { ok: true };
   }
 
   async readTextFile(workspaceId, relativePath) {
