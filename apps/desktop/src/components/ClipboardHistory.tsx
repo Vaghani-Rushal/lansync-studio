@@ -17,7 +17,7 @@ const platformStr = (
 ).toLowerCase();
 const isMac = platformStr.includes("mac") || platformStr.includes("macos");
 
-const COPY_SHORTCUT   = isMac ? "⌘⇧D" : "Ctrl+Shift+D";
+const COPY_SHORTCUT  = isMac ? "⌥⌘C" : "Ctrl+Shift+D";
 const PASTE_SHORTCUT  = isMac ? "⌘⇧F" : "Ctrl+Shift+F";
 const TOGGLE_SHORTCUT = isMac ? "⌘⇧H" : "Ctrl+Shift+H";
 
@@ -98,7 +98,7 @@ export function ClipboardHistory({
         <p style={{ fontSize: "24px", margin: "0 0 10px 0" }}>📋</p>
         <p style={{ margin: "0 0 10px 0" }}>Clipboard is empty.</p>
         <p style={{ opacity: 0.7 }}>
-          Press <strong>{COPY_SHORTCUT}</strong> anywhere to share what you copied.
+          Press <strong>{COPY_SHORTCUT}</strong> to share copied text or image.
         </p>
       </div>
     ) : (
@@ -177,7 +177,7 @@ export function ClipboardHistory({
         {/* Shortcut hints */}
         <div className="clipboard-shortcuts-bar">
           <span className="clipboard-shortcut-badge">
-            <strong>{COPY_SHORTCUT}</strong> Copy
+            <strong>{COPY_SHORTCUT}</strong> Copy Text/Image
           </span>
           <span className="clipboard-shortcut-badge">
             <strong>{PASTE_SHORTCUT}</strong> Paste
@@ -242,7 +242,7 @@ export function ClipboardHistory({
               color: "#7fb0ff",
             }}
           >
-            <strong>{COPY_SHORTCUT}</strong> Copy
+            <strong>{COPY_SHORTCUT}</strong> Copy Text/Image
           </span>
           <span
             style={{

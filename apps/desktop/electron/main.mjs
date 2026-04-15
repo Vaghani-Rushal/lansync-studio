@@ -940,21 +940,22 @@ app.whenReady().then(async () => {
 
   // -----------------------------------------------------------------------
   // Global shortcuts
-  //   Ctrl+Shift+D  →  simulate Ctrl+C in focused app  →  capture & share
-  //   Ctrl+Shift+F  →  inject top shared item → OS clipboard (ready for Ctrl+V)
+  //   Win/Linux: Ctrl+Shift+D   → generic capture (text/image) and share
+  //   macOS:     Option+Cmd+C   → generic capture (text/image) and share
+  //   All:       Ctrl/Cmd+Shift+F  → inject top shared item and paste
   // -----------------------------------------------------------------------
   const isMac      = process.platform === "darwin";
-  const copyAccel  = isMac ? "Command+Shift+D" : "CommandOrControl+Shift+D";
+  const copyAccel = isMac ? "Alt+Command+C" : "CommandOrControl+Shift+D";
   const pasteAccel = isMac ? "Command+Shift+F" : "CommandOrControl+Shift+F";
 
-  globalShortcut.register(copyAccel, async () => {
-    logger.info("[Shortcut] Ctrl+Shift+D fired — starting capture flow");
+  const runCopyCaptureFlow = async (mode = "auto", acceleratorLabel = "Ctrl+Shift+D") => {
+    logger.info(`[Shortcut] ${acceleratorLabel} fired — starting capture flow (mode=${mode})`);
 
     // Step 1: Simulate Ctrl+C in the focused app (covers text selections, etc.)
     await simulateCopyKeystroke();
 
     // Step 2: Try to capture from clipboard (text, bitmap, or CF_HDROP file paths)
-    let item = clipboardService.captureNow();
+    let item = clipboardService.captureNow({ mode });
     logger.info(`[Shortcut] captureNow result: ${item ? item.historyId : "null"}`);
 
     // Step 3: FALLBACK — if nothing captured, ask the OS file manager which
@@ -975,7 +976,7 @@ app.whenReady().then(async () => {
             // Write the bitmap so captureNow() can read it normally
             clipboard.writeImage(img);
             logger.info(`[Shortcut] File-manager image preloaded to clipboard: ${fallbackPath}`);
-            item = clipboardService.captureNow();
+            item = clipboardService.captureNow({ mode: "image" });
           } else {
             logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${fallbackPath}`);
           }
@@ -992,6 +993,10 @@ app.whenReady().then(async () => {
     } else {
       sendToClipboardWindows("clipboard:captured", null);
     }
+  };
+
+  globalShortcut.register(copyAccel, async () => {
+    await runCopyCaptureFlow("auto", isMac ? "Option+Cmd+C" : "Ctrl+Shift+D");
   });
 
   globalShortcut.register(pasteAccel, async () => {

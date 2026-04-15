@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { logger } from "./logger.mjs";
 
 /**
@@ -25,6 +26,29 @@ function buildCfHDropBuffer(filePath) {
 
 /** Image file extensions we can load from disk when copied via File Explorer */
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico"];
+
+function isImagePath(filePath) {
+  return IMAGE_EXTENSIONS.some((ext) => filePath.toLowerCase().endsWith(ext));
+}
+
+function extractMacFileUrls(raw) {
+  if (!raw) return [];
+  const cleaned = raw.replace(/\u0000/g, "\n");
+  const chunks = cleaned
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const urls = chunks.filter((part) => part.startsWith("file://"));
+  const paths = [];
+  for (const url of urls) {
+    try {
+      paths.push(fileURLToPath(url));
+    } catch {
+      // Ignore malformed URLs from unexpected clipboard payloads.
+    }
+  }
+  return paths;
+}
 
 /**
  * ClipboardService – Manual-trigger mode.
@@ -52,33 +76,56 @@ export class ClipboardService extends EventEmitter {
    * Reads what is currently on the OS clipboard and emits "manual-clipboard-capture".
    * Returns the item, or null if the clipboard is empty.
    */
-  captureNow() {
+  captureNow(options = {}) {
+    const mode = options.mode === "text" || options.mode === "image" ? options.mode : "auto";
     const text = clipboard.readText() || "";
 
     // Step 1: Try reading a bitmap image (works for screenshots, paste from apps)
+    // Note: on macOS Finder copies, readImage() may return a file icon thumbnail.
     let img = clipboard.readImage();
 
-    // Step 2: If no bitmap, check if image FILES were copied from File Explorer.
-    //         Windows stores file references as CF_HDROP — readImage() returns empty.
-    //         We detect those paths, find the first image file, and load it from disk.
-    if (img.isEmpty()) {
-      try {
-        const filePaths = clipboard.readFilePaths?.() ?? [];
-        const imageFilePath = filePaths.find((fp) =>
-          IMAGE_EXTENSIONS.some((ext) => fp.toLowerCase().endsWith(ext))
-        );
-        if (imageFilePath && fs.existsSync(imageFilePath)) {
-          img = nativeImage.createFromPath(imageFilePath);
-          logger.info(`[ClipboardService] captureNow: loaded image from file path: ${imageFilePath}`);
+    // Step 2: Prefer real image file content when clipboard contains image file paths.
+    // This avoids showing generic PNG/JPG file icons in preview cards on macOS.
+    try {
+      const filePaths = clipboard.readFilePaths?.() ?? [];
+      let imageFilePath = filePaths.find((fp) => isImagePath(fp));
+
+      // macOS Finder often publishes file references as "public.file-url"
+      // rather than through readFilePaths(). Parse that format as fallback.
+      if (!imageFilePath && process.platform === "darwin") {
+        const formats = clipboard.availableFormats?.() ?? [];
+        const fileUrlFormat = formats.find((fmt) => fmt.toLowerCase() === "public.file-url");
+        if (fileUrlFormat) {
+          const buf = clipboard.readBuffer(fileUrlFormat);
+          const macPaths = extractMacFileUrls(buf.toString("utf8"));
+          imageFilePath = macPaths.find((fp) => isImagePath(fp));
         }
-      } catch (err) {
-        logger.warn("[ClipboardService] captureNow: failed to read file paths from clipboard:", err.message);
       }
+
+      // Some apps expose the copied file path only as plain text.
+      if (!imageFilePath && text && (text.startsWith("/") || text.startsWith("file://"))) {
+        const textPath = text.startsWith("file://") ? fileURLToPath(text) : text;
+        if (isImagePath(textPath)) {
+          imageFilePath = textPath;
+        }
+      }
+
+      if (imageFilePath && fs.existsSync(imageFilePath)) {
+        const diskImg = nativeImage.createFromPath(imageFilePath);
+        if (!diskImg.isEmpty()) {
+          img = diskImg;
+          logger.info(`[ClipboardService] captureNow: using real image from file path: ${imageFilePath}`);
+        }
+      }
+    } catch (err) {
+      logger.warn("[ClipboardService] captureNow: failed to read file paths from clipboard:", err.message);
     }
 
     const image = img.isEmpty() ? "" : img.toDataURL();
+    const selectedText = mode === "image" ? "" : text;
+    const selectedImage = mode === "text" ? "" : image;
 
-    if (!text && !image) {
+    if (!selectedText && !selectedImage) {
       logger.info("[ClipboardService] captureNow: clipboard is empty – nothing to send.");
       return null;
     }
@@ -89,22 +136,22 @@ export class ClipboardService extends EventEmitter {
     //   Comparing against the MOST RECENT history entry only — not the full list —
     //   so intentional copies of older items still work.
     const latest = this.history[0];
-    if (latest && latest.text === text && latest.image === image) {
+    if (latest && latest.text === selectedText && latest.image === selectedImage) {
       logger.info("[ClipboardService] captureNow: clipboard unchanged from last capture – nothing new to share.");
       return null;
     }
 
     const item = {
       historyId: randomUUID(),
-      text,
-      image,
+      text: selectedText,
+      image: selectedImage,
       timestamp: Date.now()
     };
 
     this._addToHistory(item);
     this._lastWrittenId = null; // this is a genuine user capture
     this.emit("manual-clipboard-capture", item);
-    logger.info(`[ClipboardService] captureNow: captured item ${item.historyId} | hasImage: ${!!image} | hasText: ${!!text}`);
+    logger.info(`[ClipboardService] captureNow: captured item ${item.historyId} | mode: ${mode} | hasImage: ${!!selectedImage} | hasText: ${!!selectedText}`);
     return item;
   }
 
