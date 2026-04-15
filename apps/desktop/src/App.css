@@ -131,8 +131,10 @@ body::before {
 /* Viewer uses the full window — file explorers need every pixel */
 .layout:has(.viewer-shell) {
   max-width: 100%;
-  padding: var(--space-6) var(--space-8);
-  min-height: 100vh;
+  padding: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Other screens still feel focused on wide monitors */
@@ -644,8 +646,9 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  min-height: calc(100vh - var(--space-12));
-  padding: var(--space-6) var(--space-8);
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-6) var(--space-8) var(--space-8);
 }
 
 .viewer-shell .explorer-grid {
@@ -654,6 +657,7 @@ select:focus {
   gap: var(--space-6);
   flex: 1;
   min-height: 0;
+  align-items: stretch;
 }
 
 .viewer-shell .explorer-list,
@@ -890,9 +894,12 @@ select:focus {
 .explorer-preview {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: 0;
   padding: 0;
   overflow: hidden;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
 }
 
 .preview-header {
@@ -963,6 +970,13 @@ select:focus {
   padding: var(--space-6) var(--space-8) var(--space-8);
   overflow: auto;
   min-height: 0;
+}
+
+/* When the preview body only contains the code editor, remove all padding so Monaco fills flush */
+.preview-body:has(> .editor-wrap) {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
 }
 
 .preview-empty {
@@ -1217,8 +1231,12 @@ select:focus {
    ============================================================ */
 
 .editor-wrap {
-  display: grid;
-  gap: var(--space-5);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* So preview-body stretches to contain the editor */
+  align-self: stretch;
 }
 
 .editor-actions {
@@ -1226,6 +1244,23 @@ select:focus {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-4);
+}
+
+/* ---------- GitHub-style editor body ---------- */
+
+.github-editor-body {
+  flex: 1;
+  min-height: 480px;
+  position: relative;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+/* Viewer topbar actions */
+.viewer-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .editor-textarea {

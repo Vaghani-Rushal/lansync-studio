@@ -236,11 +236,15 @@ export const ViewerScreen = ({
     <section className="screen ui-shell viewer-shell">
       <div className="top-row bar-row">
         <div className="viewer-title-group">
-          <h2 className="section-heading">Session Viewer</h2>
           <span className="status-pill">{streamState}</span>
           <span className={`status-pill ${editorReadOnly ? "" : "ok"}`}>{editorReadOnly ? "View only" : "Edit allowed"}</span>
         </div>
-        <div className="row-wrap">
+        <div className="viewer-topbar-actions">
+          {isText && selectedFile ? (
+            <button className="primary-btn" disabled={!isDirty || isSaving || editorReadOnly} onClick={onSave}>
+              {isSaving ? "Saving..." : "Save Changes"}
+            </button>
+          ) : null}
           <button className="ghost-btn" onClick={onBack}>
             Back
           </button>
@@ -300,7 +304,7 @@ export const ViewerScreen = ({
           )}
         </aside>
 
-        <div className="explorer-preview card-surface">
+        <div className="explorer-preview">
           {selectedFile ? (
             <>
               <div className="preview-header">
@@ -412,14 +416,6 @@ export const ViewerScreen = ({
                 ) : null}
                 {isText ? (
                   <div className="editor-wrap">
-                    <div className="editor-actions">
-                      <span className={`status-pill ${isDirty ? "" : "ok"}`}>
-                        {editorReadOnly ? "View only mode" : isDirty ? "● Unsaved changes" : "✓ Saved"}
-                      </span>
-                      <button className="primary-btn" disabled={!selectedFile || !isDirty || isSaving || editorReadOnly} onClick={onSave}>
-                        {isSaving ? "Saving..." : "Save Changes"}
-                      </button>
-                    </div>
                     <CodeEditor value={editorText} readOnly={editorReadOnly} onChange={onEditorChange} />
                   </div>
                 ) : null}
