@@ -59,6 +59,7 @@ const CLIPBOARD_RELAY_MAX_TTL = 2;
 const seenClipboardMessages = new Map();
 const seenClipboardTtlMs = 60_000;
 let runtimeCleanedUp = false;
+const ENABLE_AUTO_CLIPBOARD_MONITOR = false;
 
 /**
  * Sends a clipboard IPC event to every window that cares about clipboard state.
@@ -1131,9 +1132,11 @@ app.whenReady().then(async () => {
   });
   await createWindow();
   await createClipboardWindow();
-  // Always watch local OS clipboard in RAM and auto-share across active sessions.
-  // This enables "whoever copies on LAN/Wi-Fi, everyone sees it" behavior.
-  clipboardService.startPolling();
+  // Keep OS copy (Ctrl/Cmd+C) and app-share copy separated:
+  // only dedicated app shortcuts should publish to shared clipboard.
+  if (ENABLE_AUTO_CLIPBOARD_MONITOR) {
+    clipboardService.startPolling();
+  }
 
   // -----------------------------------------------------------------------
   // Global shortcuts
@@ -1674,7 +1677,9 @@ ipcMain.handle("client:join-workspace", async (_event, workspace) => {
         } else if (message.type === "JOIN_ACCEPT") {
           activeSessionToken = message.payload.sessionToken;
           activeJoinedWorkspaceId = message.payload.workspaceId;
-          clipboardService.startPolling();
+          if (ENABLE_AUTO_CLIPBOARD_MONITOR) {
+            clipboardService.startPolling();
+          }
           done({ ok: true, status: "connected" });
         } else if (message.type === "JOIN_REJECT") {
           activeSessionToken = null;
