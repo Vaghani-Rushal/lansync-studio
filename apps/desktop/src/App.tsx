@@ -107,7 +107,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (currentScreen === "home") {
+    if (currentScreen === "home" || currentScreen === "join") {
       void ensureDiscoveryRunning();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -334,21 +334,12 @@ function App() {
       {currentScreen === "join" ? (
         <JoinScreen
           discovered={discovered}
-          isDiscovering={isDiscovering}
           connectionState={connectionState}
           joinedWorkspaceName={joinedWorkspaceName}
           joinRejectReason={joinRejectReason}
           errorBanner={errorBanner}
           bridgeReady={bridgeReady}
           onDismissError={() => setErrorBanner(null)}
-          onStartDiscovery={async () => {
-            await ensureDiscoveryRunning();
-          }}
-          onStopDiscovery={async () => {
-            if (!api || !bridgeReady) return;
-            await api.stopDiscovery();
-            setIsDiscovering(false);
-          }}
           onJoinWorkspace={handleJoinWorkspace}
           onCancelJoin={handleCancelJoin}
           onRetry={async () => {
