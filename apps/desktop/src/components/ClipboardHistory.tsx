@@ -90,6 +90,10 @@ export function ClipboardHistory({
     window.pcConnectorApi?.hideClipboardWindow?.();
   };
 
+  const handleQuit = async () => {
+    await window.pcConnectorApi?.quitApp?.();
+  };
+
   // -------------------------------------------------------------------------
   // History list — shared between both render paths
   // -------------------------------------------------------------------------
@@ -171,9 +175,19 @@ export function ClipboardHistory({
         {/* Draggable title bar */}
         <div className="clipboard-window-titlebar">
           <span className="clipboard-window-drag">📋 Shared Clipboard</span>
-          <button className="clipboard-window-close" onClick={handleClose} title="Hide window">
-            ✕
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              className="clipboard-window-close"
+              onClick={handleQuit}
+              title="Quit app and clear runtime memory"
+              style={{ color: "#ffb36b" }}
+            >
+              Quit
+            </button>
+            <button className="clipboard-window-close" onClick={handleClose} title="Hide window">
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Shortcut hints */}

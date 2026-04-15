@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
   getClipboardHistory: () => ipcRenderer.invoke("clipboard:get-history"),
   writeClipboardItem: (payload) => ipcRenderer.invoke("clipboard:write", payload),
   hideClipboardWindow: () => ipcRenderer.invoke("clipboard-window:hide"),
+  quitApp: () => ipcRenderer.invoke("app:quit"),
 
   // Event listeners
   onWorkspaces: (listener) => {

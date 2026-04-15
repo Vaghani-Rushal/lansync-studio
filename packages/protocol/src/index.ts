@@ -29,7 +29,8 @@ export const messageTypes = [
   "PING",
   "PONG",
   "SESSION_STOP",
-  "CLIPBOARD_SYNC"
+  "CLIPBOARD_SYNC",
+  "CLIPBOARD_ACK"
 ] as const;
 
 export const protocolVersion = "1.1.0";
@@ -198,7 +199,18 @@ export const clipboardSyncSchema = z.object({
   text: z.string().optional(),
   image: z.string().optional(),
   timestamp: z.number(),
+  messageId: z.string().uuid().optional(),
+  ackKey: z.string().min(1).optional(),
+  originPeerId: z.string().uuid().optional(),
+  relayTtl: z.number().int().nonnegative().optional(),
+  sentAt: z.number().optional(),
   sessionToken: z.string().min(16).optional(),
   sourceUserId: z.string().uuid().optional(),
   sourceDisplayName: z.string().min(1).max(64).optional()
+});
+
+export const clipboardAckSchema = z.object({
+  messageId: z.string().uuid(),
+  ackKey: z.string().min(1).optional(),
+  ackedAt: z.number().optional()
 });

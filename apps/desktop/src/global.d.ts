@@ -73,6 +73,7 @@ declare global {
       getClipboardHistory(): Promise<Array<{ historyId: string; text?: string; image?: string; timestamp: number }>>;
       writeClipboardItem(payload: { historyId: string }): Promise<{ ok: boolean }>;
       hideClipboardWindow(): Promise<void>;
+      quitApp(): Promise<{ ok: boolean }>;
 
       // Listeners
       onWorkspaces(listener: Listener<DiscoveryWorkspace[]>): () => void;

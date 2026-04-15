@@ -21,6 +21,13 @@ export class TransportService {
     this.manualClose = false;
     this.activeTransfers = new Map();
     this.transferAckTimeoutMs = 10_000;
+    this.pendingClipboardAcks = new Map();
+    this.clipboardRetryDefaults = {
+      maxRetries: 2,
+      initialDelayMs: 400,
+      maxDelayMs: 2000,
+      ttlMs: 12_000
+    };
   }
 
   startServer(port, handlers) {
@@ -54,6 +61,7 @@ export class TransportService {
   }
 
   stopServer() {
+    this.clearClipboardRetries();
     try {
       this.server?.close();
     } catch {
@@ -288,6 +296,7 @@ export class TransportService {
   }
 
   closeAll() {
+    this.clearClipboardRetries();
     for (const transferId of this.activeTransfers.keys()) {
       this.cancelTransfer(transferId);
     }
@@ -301,9 +310,97 @@ export class TransportService {
   }
 
   disconnectClient() {
+    this.clearClipboardRetries();
     this.manualClose = true;
     this.stopHeartbeat();
     this.client?.close();
     this.client = null;
+  }
+
+  sendClipboardWithRetry(messageId, sendAttempt, options = {}) {
+    if (typeof messageId !== "string" || messageId.length === 0) return;
+    if (typeof sendAttempt !== "function") return;
+    const ackKey = options.ackKey || messageId;
+    this.ackClipboard(ackKey);
+
+    const merged = {
+      ...this.clipboardRetryDefaults,
+      ...options
+    };
+
+    const entry = {
+      messageId,
+      ackKey,
+      attempts: 0,
+      startedAt: Date.now(),
+      maxRetries: merged.maxRetries,
+      initialDelayMs: merged.initialDelayMs,
+      maxDelayMs: merged.maxDelayMs,
+      ttlMs: merged.ttlMs,
+      timer: null
+    };
+
+    const scheduleNext = () => {
+      if (!this.pendingClipboardAcks.has(ackKey)) return;
+      const delay = Math.min(
+        entry.initialDelayMs * 2 ** Math.max(0, entry.attempts - 1),
+        entry.maxDelayMs
+      );
+      entry.timer = setTimeout(runAttempt, delay);
+    };
+
+    const runAttempt = () => {
+      if (!this.pendingClipboardAcks.has(ackKey)) return;
+
+      const ageMs = Date.now() - entry.startedAt;
+      if (ageMs > entry.ttlMs) {
+        logger.warn(`[TransportService] clipboard retry expired for message ${messageId} (ackKey=${ackKey})`);
+        this.ackClipboard(ackKey);
+        return;
+      }
+
+      try {
+        sendAttempt(entry.attempts);
+      } catch (error) {
+        logger.warn(
+          `[TransportService] clipboard send attempt failed for message ${messageId} (ackKey=${ackKey}): ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+
+      if (entry.attempts >= entry.maxRetries) {
+        logger.warn(
+          `[TransportService] clipboard message ${messageId} exhausted retries after ${entry.attempts + 1} attempts`
+        );
+        this.ackClipboard(ackKey);
+        return;
+      }
+
+      entry.attempts += 1;
+      scheduleNext();
+    };
+
+    this.pendingClipboardAcks.set(ackKey, entry);
+    runAttempt();
+  }
+
+  ackClipboard(ackKey) {
+    const entry = this.pendingClipboardAcks.get(ackKey);
+    if (!entry) return false;
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+    }
+    this.pendingClipboardAcks.delete(ackKey);
+    return true;
+  }
+
+  clearClipboardRetries() {
+    for (const entry of this.pendingClipboardAcks.values()) {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+    }
+    this.pendingClipboardAcks.clear();
   }
 }

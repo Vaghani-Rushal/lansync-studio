@@ -68,6 +68,10 @@ export class ClipboardService extends EventEmitter {
     this._pollTimer = null;
     this._lastClipboardSignature = "";
     this._pollIntervalMs = 700;
+    this._recentMessageIds = new Set();
+    this._selfWrittenSignatures = new Set();
+    this._maxRecentMessageIds = 300;
+    this._maxSelfWrittenSignatures = 80;
   }
 
   // ---------------------------------------------------------------------------
@@ -133,6 +137,11 @@ export class ClipboardService extends EventEmitter {
       return null;
     }
 
+    if (this.isLikelySelfWritten(selectedText, selectedImage)) {
+      logger.info("[ClipboardService] captureNow: skipping self-written clipboard content.");
+      return null;
+    }
+
     // Step 3: Guard against re-capturing the same content.
     //   This happens on macOS when the osascript Cmd+C didn't update the clipboard
     //   (e.g. selection was lost before the shortcut fired).
@@ -149,6 +158,10 @@ export class ClipboardService extends EventEmitter {
       text: selectedText,
       image: selectedImage,
       timestamp: Date.now(),
+      messageId: options.messageId || randomUUID(),
+      originPeerId: options.originPeerId,
+      relayTtl: options.relayTtl,
+      sentAt: options.sentAt || Date.now(),
       sourceUserId: options.sourceUserId,
       sourceDisplayName: options.sourceDisplayName
     };
@@ -185,6 +198,7 @@ export class ClipboardService extends EventEmitter {
    * Automatically writes the payload to the OS clipboard so Ctrl+V works immediately.
    */
   writeFromRemote(payload) {
+    if (payload.messageId && this._recentMessageIds.has(payload.messageId)) return;
     // Avoid duplicates
     if (this.history.some((h) => h.historyId === payload.historyId)) return;
 
@@ -193,6 +207,10 @@ export class ClipboardService extends EventEmitter {
       text: payload.text || "",
       image: payload.image || "",
       timestamp: payload.timestamp,
+      messageId: payload.messageId || randomUUID(),
+      originPeerId: payload.originPeerId,
+      relayTtl: payload.relayTtl,
+      sentAt: payload.sentAt || Date.now(),
       sourceUserId: payload.sourceUserId,
       sourceDisplayName: payload.sourceDisplayName
     };
@@ -221,6 +239,14 @@ export class ClipboardService extends EventEmitter {
 
   getHistory() {
     return this.history;
+  }
+
+  clearHistory() {
+    this.history = [];
+    this._lastWrittenId = null;
+    this._recentMessageIds.clear();
+    this._selfWrittenSignatures.clear();
+    this._lastClipboardSignature = "";
   }
 
   startPolling() {
@@ -254,6 +280,7 @@ export class ClipboardService extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   _addToHistory(item) {
+    this._rememberMessageId(item.messageId);
     // Remove exact duplicate (same text+image content)
     const existingIdx = this.history.findIndex(
       (h) => h.text === item.text && h.image === item.image
@@ -266,6 +293,7 @@ export class ClipboardService extends EventEmitter {
 
   _writeToOS(item) {
     try {
+      this._rememberSelfWrittenSignature(item.text || "", item.image || "");
       if (item.image) {
         const img = nativeImage.createFromDataURL(item.image);
         if (img.isEmpty()) {
@@ -307,5 +335,28 @@ export class ClipboardService extends EventEmitter {
       filePaths,
       macFileUrlPayload
     });
+  }
+
+  _rememberMessageId(messageId) {
+    if (!messageId) return;
+    this._recentMessageIds.add(messageId);
+    if (this._recentMessageIds.size > this._maxRecentMessageIds) {
+      const [first] = this._recentMessageIds;
+      if (first) this._recentMessageIds.delete(first);
+    }
+  }
+
+  _rememberSelfWrittenSignature(text, image) {
+    const signature = `${text}::${image ? image.slice(0, 128) : ""}`;
+    this._selfWrittenSignatures.add(signature);
+    if (this._selfWrittenSignatures.size > this._maxSelfWrittenSignatures) {
+      const [first] = this._selfWrittenSignatures;
+      if (first) this._selfWrittenSignatures.delete(first);
+    }
+  }
+
+  isLikelySelfWritten(text, image) {
+    const signature = `${text}::${image ? image.slice(0, 128) : ""}`;
+    return this._selfWrittenSignatures.has(signature);
   }
 }

@@ -10,6 +10,7 @@ const execAsync = promisify(exec);
 import chokidar from "chokidar";
 import { WebSocket } from "ws";
 import {
+  clipboardAckSchema,
   crdtInitSchema,
   crdtSyncRequestSchema,
   crdtUpdateSchema,
@@ -42,44 +43,6 @@ const transportService = new TransportService(sessionService, workspaceService);
 const crdtService = new CrdtService(workspaceService);
 const clipboardService = new ClipboardService();
 
-clipboardService.on("manual-clipboard-capture", (item) => {
-  const identity = identityService?.get();
-  if (identity && !item.sourceDisplayName) {
-    item.sourceUserId = identity.userId;
-    item.sourceDisplayName = identity.displayName;
-  }
-
-  // Broadcast to all clients if we are the Host
-  for (const ws of workspaceService.listWorkspaces()) {
-    transportService.broadcastToWorkspace(ws.workspaceId, "CLIPBOARD_SYNC", randomUUID(), item);
-  }
-  // Send to Host if we are a Client
-  if (transportService.client && activeSessionToken) {
-    transportService.send(transportService.client, "CLIPBOARD_SYNC", randomUUID(), {
-      ...item,
-      sessionToken: activeSessionToken
-    });
-  }
-  // Broadcast to discovered clipboard peers on LAN/Wi-Fi (no workspace join required)
-  for (const peer of discoveredClipboardPeers) {
-    if (identity && peer.peerId === identity.userId) continue;
-    const socket = new WebSocket(`ws://${peer.hostAddress}:${peer.port}`);
-    socket.on("open", () => {
-      transportService.send(socket, "CLIPBOARD_SYNC", randomUUID(), item);
-      socket.close();
-    });
-    socket.on("error", () => {
-      try {
-        socket.close();
-      } catch {
-        /* no-op */
-      }
-    });
-  }
-  // Refresh all clipboard-aware windows
-  sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
-});
-
 /** @type {IdentityService} */
 let identityService;
 
@@ -92,6 +55,10 @@ let clipboardWindow = null;
 // Set to true when the app is actually quitting (Cmd+Q / app.quit()).
 // Prevents the clipboard window's close-event intercept from blocking real quits.
 let isQuitting = false;
+const CLIPBOARD_RELAY_MAX_TTL = 2;
+const seenClipboardMessages = new Map();
+const seenClipboardTtlMs = 60_000;
+let runtimeCleanedUp = false;
 
 /**
  * Sends a clipboard IPC event to every window that cares about clipboard state.
@@ -106,6 +73,162 @@ function sendToClipboardWindows(channel, payload) {
     }
   }
 }
+
+function markClipboardMessageSeen(messageId) {
+  if (!messageId) return;
+  seenClipboardMessages.set(messageId, Date.now());
+}
+
+function pruneSeenClipboardMessages() {
+  const now = Date.now();
+  for (const [messageId, seenAt] of seenClipboardMessages.entries()) {
+    if (now - seenAt > seenClipboardTtlMs) {
+      seenClipboardMessages.delete(messageId);
+    }
+  }
+}
+
+function hasSeenClipboardMessage(messageId) {
+  if (!messageId) return false;
+  pruneSeenClipboardMessages();
+  return seenClipboardMessages.has(messageId);
+}
+
+function normalizeClipboardPayload(rawPayload, options = {}) {
+  const identity = identityService?.get();
+  const messageId = rawPayload.messageId || randomUUID();
+  const originPeerId = rawPayload.originPeerId || rawPayload.sourceUserId || identity?.userId;
+  const relayTtl = Math.max(
+    0,
+    Number.isFinite(rawPayload.relayTtl)
+      ? Number(rawPayload.relayTtl)
+      : (options.defaultRelayTtl ?? CLIPBOARD_RELAY_MAX_TTL)
+  );
+  const payload = {
+    ...rawPayload,
+    messageId,
+    originPeerId,
+    relayTtl,
+    sentAt: rawPayload.sentAt || Date.now(),
+    sourceUserId: rawPayload.sourceUserId || identity?.userId,
+    sourceDisplayName: rawPayload.sourceDisplayName || identity?.displayName
+  };
+  return payload;
+}
+
+function sendClipboardToPeer(peer, payload) {
+  const socket = new WebSocket(`ws://${peer.hostAddress}:${peer.port}`);
+  const correlationId = randomUUID();
+  const ackKey = `${payload.messageId}:peer:${peer.peerId}`;
+  socket.on("open", () => {
+    transportService.sendClipboardWithRetry(
+      payload.messageId,
+      () => {
+        transportService.send(socket, "CLIPBOARD_SYNC", correlationId, { ...payload, ackKey });
+      },
+      { ackKey }
+    );
+  });
+  socket.on("message", (buffer) => {
+    try {
+      const incoming = JSON.parse(buffer.toString());
+      if (incoming?.type !== "CLIPBOARD_ACK") return;
+      const parsedAck = clipboardAckSchema.safeParse(incoming.payload);
+      if (!parsedAck.success) return;
+      const incomingAckKey = parsedAck.data.ackKey || ackKey;
+      transportService.ackClipboard(incomingAckKey);
+      try {
+        socket.close();
+      } catch {
+        /* no-op */
+      }
+    } catch {
+      /* no-op */
+    }
+  });
+  socket.on("close", () => {
+    transportService.ackClipboard(ackKey);
+  });
+  socket.on("error", () => {
+    try {
+      socket.close();
+    } catch {
+      /* no-op */
+    }
+  });
+}
+
+function routeClipboardEvent(rawPayload, options = {}) {
+  const payload = normalizeClipboardPayload(rawPayload, {
+    defaultRelayTtl: options.defaultRelayTtl
+  });
+  const messageId = payload.messageId;
+  if (!messageId) return;
+
+  if (hasSeenClipboardMessage(messageId)) {
+    logger.info(`[ClipboardRoute] Dropping already-seen message ${messageId}`);
+    return;
+  }
+  markClipboardMessageSeen(messageId);
+
+  const identity = identityService?.get();
+  const canRelay = payload.relayTtl > 0;
+  const forwardedPayload = canRelay
+    ? { ...payload, relayTtl: Math.max(0, payload.relayTtl - 1) }
+    : null;
+
+  if (canRelay && forwardedPayload) {
+    for (const ws of workspaceService.listWorkspaces()) {
+      for (const session of sessionService.listConnectedSessionsForWorkspace(ws.workspaceId)) {
+        const correlationId = randomUUID();
+        const ackKey = `${payload.messageId}:workspace:${ws.workspaceId}:${session.clientId}`;
+        transportService.sendClipboardWithRetry(
+          payload.messageId,
+          () => {
+            transportService.send(session.socket, "CLIPBOARD_SYNC", correlationId, {
+              ...forwardedPayload,
+              ackKey
+            });
+          },
+          { ackKey }
+        );
+      }
+    }
+
+    if (transportService.client && activeSessionToken) {
+      const correlationId = randomUUID();
+      const ackKey = `${payload.messageId}:client:${activeSessionToken}`;
+      transportService.sendClipboardWithRetry(
+        payload.messageId,
+        () => {
+          transportService.send(transportService.client, "CLIPBOARD_SYNC", correlationId, {
+            ...forwardedPayload,
+            ackKey,
+            sessionToken: activeSessionToken
+          });
+        },
+        { ackKey }
+      );
+    }
+
+    for (const peer of discoveredClipboardPeers) {
+      if (identity && peer.peerId === identity.userId) continue;
+      if (payload.originPeerId && peer.peerId === payload.originPeerId) continue;
+      sendClipboardToPeer(peer, forwardedPayload);
+    }
+  } else {
+    logger.info(`[ClipboardRoute] relay ttl exhausted for ${messageId}`);
+  }
+
+  sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+}
+
+clipboardService.on("manual-clipboard-capture", (item) => {
+  const payload = normalizeClipboardPayload(item, {
+    defaultRelayTtl: CLIPBOARD_RELAY_MAX_TTL
+  });
+  routeClipboardEvent(payload, { defaultRelayTtl: CLIPBOARD_RELAY_MAX_TTL });
+});
 
 const SHARED_PORT = 7788;
 let serverStarted = false;
@@ -167,6 +290,21 @@ const broadcastClientsUpdate = (workspaceId) => {
     workspaceId,
     clients
   });
+};
+
+const cleanupRuntimeResources = () => {
+  if (runtimeCleanedUp) return;
+  runtimeCleanedUp = true;
+  clipboardService.stopPolling();
+  clipboardService.clearHistory();
+  seenClipboardMessages.clear();
+  discoveredClipboardPeers = [];
+  transportService.clearClipboardRetries();
+  globalShortcut.unregisterAll();
+  for (const wsId of Array.from(workspaceWatchers.keys())) teardownWorkspaceWatcher(wsId);
+  transportService.stopServer();
+  transportService.disconnectClient();
+  discovery.destroy();
 };
 
 const createWindow = async () => {
@@ -539,20 +677,38 @@ const onWireMessage = async (socket, message) => {
       sendError(socket, message.correlationId, "INVALID_CLIPBOARD_SYNC", "Clipboard sync payload is invalid");
       return;
     }
+    const payload = normalizeClipboardPayload(parsed.data, {
+      defaultRelayTtl: CLIPBOARD_RELAY_MAX_TTL
+    });
+    transportService.send(socket, "CLIPBOARD_ACK", message.correlationId, {
+      messageId: payload.messageId,
+      ackKey: payload.ackKey,
+      ackedAt: Date.now()
+    });
 
-    clipboardService.writeFromRemote(parsed.data);
-
-    if (parsed.data.sessionToken) {
-      const client = sessionService.validateToken(parsed.data.sessionToken, socket);
-      if (client) {
-        for (const target of sessionService.listConnectedSessionsForWorkspace(client.workspaceId)) {
-          if (target.socket === socket) continue;
-          transportService.send(target.socket, "CLIPBOARD_SYNC", message.correlationId, parsed.data);
-        }
+    if (payload.sessionToken) {
+      const client = sessionService.validateToken(payload.sessionToken, socket);
+      if (!client) {
+        sendError(socket, message.correlationId, "UNAUTHORIZED", "Invalid session token");
+        return;
       }
     }
 
-    sendToClipboardWindows("clipboard:update", clipboardService.getHistory());
+    clipboardService.writeFromRemote(payload);
+    routeClipboardEvent(payload, {
+      defaultRelayTtl: payload.relayTtl
+    });
+    return;
+  }
+
+  if (message.type === "CLIPBOARD_ACK") {
+    const parsed = clipboardAckSchema.safeParse(message.payload);
+    if (!parsed.success) {
+      sendError(socket, message.correlationId, "INVALID_CLIPBOARD_ACK", "Clipboard ACK payload is invalid");
+      return;
+    }
+    transportService.ackClipboard(parsed.data.ackKey || parsed.data.messageId);
+    return;
   }
 };
 
@@ -1109,16 +1265,12 @@ app.whenReady().then(async () => {
 // clipboard window whose close event is otherwise intercepted to hide instead of destroy.
 app.on("before-quit", () => {
   isQuitting = true;
-  clipboardService.stopPolling();
+  cleanupRuntimeResources();
 });
 
 app.on("window-all-closed", () => {
-  globalShortcut.unregisterAll();
   if (process.platform !== "darwin") {
-    for (const wsId of Array.from(workspaceWatchers.keys())) teardownWorkspaceWatcher(wsId);
-    transportService.stopServer();
-    transportService.disconnectClient();
-    discovery.destroy();
+    cleanupRuntimeResources();
     app.quit();
   }
 });
@@ -1147,6 +1299,13 @@ ipcMain.handle("clipboard-window:hide", () => {
   if (clipboardWindow && !clipboardWindow.isDestroyed()) {
     clipboardWindow.hide();
   }
+});
+
+ipcMain.handle("app:quit", () => {
+  isQuitting = true;
+  cleanupRuntimeResources();
+  app.quit();
+  return { ok: true };
 });
 
 ipcMain.handle("identity:set", async (_event, payload) => {
