@@ -937,6 +937,9 @@ app.whenReady().then(async () => {
   await identityService.load();
   await createWindow();
   await createClipboardWindow();
+  // Always watch local OS clipboard in RAM and auto-share across active sessions.
+  // This enables "whoever copies on LAN/Wi-Fi, everyone sees it" behavior.
+  clipboardService.startPolling();
 
   // -----------------------------------------------------------------------
   // Global shortcuts
@@ -1068,6 +1071,7 @@ app.whenReady().then(async () => {
 // clipboard window whose close event is otherwise intercepted to hide instead of destroy.
 app.on("before-quit", () => {
   isQuitting = true;
+  clipboardService.stopPolling();
 });
 
 app.on("window-all-closed", () => {

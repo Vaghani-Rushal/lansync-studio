@@ -65,6 +65,9 @@ export class ClipboardService extends EventEmitter {
     // Track the last item we wrote TO the OS clipboard ourselves
     // so that if the user later presses Ctrl+Shift+D we don't re-broadcast it.
     this._lastWrittenId = null;
+    this._pollTimer = null;
+    this._lastClipboardSignature = "";
+    this._pollIntervalMs = 700;
   }
 
   // ---------------------------------------------------------------------------
@@ -216,6 +219,32 @@ export class ClipboardService extends EventEmitter {
     return this.history;
   }
 
+  startPolling() {
+    if (this._pollTimer) return;
+    this._lastClipboardSignature = this._readClipboardSignature();
+    this._pollTimer = setInterval(() => {
+      try {
+        const signature = this._readClipboardSignature();
+        if (signature === this._lastClipboardSignature) return;
+        this._lastClipboardSignature = signature;
+        const item = this.captureNow({ mode: "auto" });
+        if (item) {
+          logger.info(`[ClipboardService] startPolling: auto-captured clipboard item ${item.historyId}`);
+        }
+      } catch (err) {
+        logger.warn("[ClipboardService] startPolling: polling tick failed:", err.message);
+      }
+    }, this._pollIntervalMs);
+    logger.info(`[ClipboardService] startPolling: started (${this._pollIntervalMs}ms interval)`);
+  }
+
+  stopPolling() {
+    if (!this._pollTimer) return;
+    clearInterval(this._pollTimer);
+    this._pollTimer = null;
+    logger.info("[ClipboardService] stopPolling: stopped");
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -252,5 +281,16 @@ export class ClipboardService extends EventEmitter {
     } catch (err) {
       logger.error("[ClipboardService] _writeToOS error:", err);
     }
+  }
+
+  _readClipboardSignature() {
+    const text = clipboard.readText() || "";
+    const imageDataUrl = clipboard.readImage().toDataURL();
+    const filePaths = clipboard.readFilePaths?.() ?? [];
+    return JSON.stringify({
+      text,
+      imageDataUrl,
+      filePaths
+    });
   }
 }
