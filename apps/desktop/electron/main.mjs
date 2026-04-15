@@ -963,6 +963,9 @@ function isMacAccessibilityError(err) {
 async function simulatePasteKeystroke() {
   try {
     if (process.platform === "darwin") {
+      // Cmd+Shift+F ke turant baad Shift key abhi held reh sakti hai.
+      // Chhota buffer dene se modifier state settle hoti hai, especially image payload paste ke liye.
+      await new Promise((r) => setTimeout(r, 180));
       await execAsync(
         `osascript -e 'tell application "System Events" to keystroke "v" using command down'`,
         { timeout: 5000 }
