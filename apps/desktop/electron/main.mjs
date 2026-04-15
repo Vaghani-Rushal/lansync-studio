@@ -716,7 +716,9 @@ async function simulateCopyKeystroke() {
       await execAsync(
         `osascript -e 'tell application "System Events" to keystroke "c" using command down'`
       );
-      await new Promise((r) => setTimeout(r, 250));
+      // 400ms: Electron renderer (and some native apps) need extra time to process
+      // the synthetic Cmd+C and flush the new content to the clipboard.
+      await new Promise((r) => setTimeout(r, 400));
     } else if (process.platform === "win32") {
       if (copyHelperExe && fs.existsSync(copyHelperExe)) {
         // Compiled C# EXE — starts in ~5ms, correctly handles Shift modifier

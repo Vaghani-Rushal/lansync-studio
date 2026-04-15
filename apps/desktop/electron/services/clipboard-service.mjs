@@ -83,6 +83,17 @@ export class ClipboardService extends EventEmitter {
       return null;
     }
 
+    // Step 3: Guard against re-capturing the same content.
+    //   This happens on macOS when the osascript Cmd+C didn't update the clipboard
+    //   (e.g. selection was lost before the shortcut fired).
+    //   Comparing against the MOST RECENT history entry only — not the full list —
+    //   so intentional copies of older items still work.
+    const latest = this.history[0];
+    if (latest && latest.text === text && latest.image === image) {
+      logger.info("[ClipboardService] captureNow: clipboard unchanged from last capture – nothing new to share.");
+      return null;
+    }
+
     const item = {
       historyId: randomUUID(),
       text,
