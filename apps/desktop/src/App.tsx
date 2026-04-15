@@ -8,6 +8,8 @@ import { ShareScreen } from "./screens/ShareScreen";
 import { ViewerScreen } from "./screens/ViewerScreen";
 import { NameSetupScreen } from "./screens/NameSetupScreen";
 import { ClipboardHistory } from "./components/ClipboardHistory";
+import { DocxStructuralEditError, patchDocxText } from "./utils/docxPatcher";
+import { arrayBufferToBase64 } from "./utils/base64";
 
 import { useLanShareStore } from "./state/lanShareStore";
 
@@ -42,6 +44,8 @@ function App() {
   const previewUrl = useLanShareStore((s) => s.previewUrl);
   const previewBuffer = useLanShareStore((s) => s.previewBuffer);
   const docxPreview = useLanShareStore((s) => s.docxPreview);
+  const docxOriginalBuffer = useLanShareStore((s) => s.docxOriginalBuffer);
+  const docxReferenceHtml = useLanShareStore((s) => s.docxReferenceHtml);
   const isDiscovering = useLanShareStore((s) => s.isDiscovering);
   const streamState = useLanShareStore((s) => s.streamState);
   const streamMeta = useLanShareStore((s) => s.streamMeta);
@@ -139,7 +143,7 @@ function App() {
     if (response.ok) {
       setStatus(`Sharing ${response.workspace.workspaceName}`);
       setActiveHostWorkspaceId(response.workspace.workspaceId);
-      // Refresh hosted workspaces list
+      setNewWorkspaceName("");
       const list = await api.listHostedWorkspaces();
       setHostedWorkspaces(list);
     } else if (!("cancelled" in response && response.cancelled)) {
@@ -228,6 +232,33 @@ function App() {
     setIsSaving(false);
   };
 
+  const handleSaveDocx = async (editedHtml: string) => {
+    if (!api || !selectedFile) return;
+    if (!docxOriginalBuffer || !docxReferenceHtml) {
+      setErrorBanner("Original document is unavailable. Reopen the file and try again.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const patched = await patchDocxText(docxOriginalBuffer, docxReferenceHtml, editedHtml);
+      const base64 = arrayBufferToBase64(patched);
+      const response = await api.saveFile({
+        relativePath: selectedFile,
+        content: base64,
+        encoding: "base64",
+        isBinary: true
+      });
+      if (!response.ok) setErrorBanner(response.error ?? "Save failed");
+    } catch (err) {
+      if (err instanceof DocxStructuralEditError) {
+        throw err;
+      }
+      setErrorBanner(err instanceof Error ? err.message : "Failed to patch .docx");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!api) return;
     await api.disconnectClient();
@@ -268,11 +299,6 @@ function App() {
 
   return (
     <main className="layout professional">
-      <header className="topbar">
-        <h1>PC Connector Workspace</h1>
-        <span className="pill">{status}</span>
-      </header>
-
       {currentScreen === "home" ? (
         <HomeScreen
           identity={identity}
@@ -337,7 +363,15 @@ function App() {
               setJoinRejectReason(response.reason ?? "Host rejected the request");
             }
           }}
-          onBack={() => {
+          onBack={async () => {
+            const isActive =
+              connectionState === "awaiting_approval" ||
+              connectionState === "connecting" ||
+              connectionState === "connected";
+            if (isActive) {
+              if (api) await api.disconnectClient();
+              clearClientRamState();
+            }
             setConnectionState("disconnected");
             setScreen("home");
           }}
@@ -362,11 +396,18 @@ function App() {
           editorReadOnly={editorReadOnly}
           errorBanner={errorBanner}
           onDismissError={() => setErrorBanner(null)}
-          onBack={() => setScreen("join")}
+          onBack={async () => {
+            const confirmed = confirm(
+              "Leave this session? You'll need the session code to rejoin."
+            );
+            if (!confirmed) return;
+            await handleDisconnect();
+          }}
           onDisconnect={handleDisconnect}
           onOpenFile={handleOpenFile}
           onEditorChange={(value) => applyEditorChange(value)}
           onSave={handleSave}
+          onSaveDocx={handleSaveDocx}
         />
       ) : null}
 

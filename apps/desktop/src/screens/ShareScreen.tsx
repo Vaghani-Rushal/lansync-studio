@@ -108,9 +108,9 @@ export const ShareScreen = ({
             className="primary-btn"
             style={{ marginTop: 12 }}
             disabled={!bridgeReady || isCreatingWorkspace || newWorkspaceName.trim().length === 0}
-            onClick={onCreateWorkspace}
+            onClick={() => onCreateWorkspace()}
           >
-            {isCreatingWorkspace ? "Starting..." : "Pick folder & start sharing"}
+            {isCreatingWorkspace ? "Starting..." : "Pick file or folder"}
           </button>
           <div className="muted">{status}</div>
         </div>

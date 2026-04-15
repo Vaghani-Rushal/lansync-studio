@@ -59,7 +59,12 @@ declare global {
       cancelOpenFile(payload: { transferId: string; relativePath: string }): Promise<{ ok: boolean; error?: string }>;
       acknowledgeFileTransfer(payload: { transferId: string; relativePath: string }): Promise<{ ok: boolean; error?: string }>;
       rejectFileTransfer(payload: { transferId: string; relativePath: string; reason: string }): Promise<{ ok: boolean; error?: string }>;
-      saveFile(payload: { relativePath: string; content: string }): Promise<{ ok: boolean; correlationId?: string; error?: string }>;
+      saveFile(payload: {
+        relativePath: string;
+        content: string;
+        encoding?: "utf8" | "base64";
+        isBinary?: boolean;
+      }): Promise<{ ok: boolean; correlationId?: string; error?: string }>;
       disconnectClient(): Promise<{ ok: boolean }>;
       reconnectClient(): Promise<JoinResult>;
       getClientSessionState(): Promise<{ hasActiveSession: boolean; workspaceId?: string; workspace?: DiscoveryWorkspace }>;

@@ -3,20 +3,47 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { AppError } from "./errors.mjs";
 
+const BINARY_WRITE_EXTENSIONS = new Set([".docx"]);
+
 const textExtensions = new Set([
-  ".txt",
-  ".md",
-  ".js",
-  ".ts",
-  ".tsx",
-  ".json",
-  ".css",
-  ".html",
-  ".xml",
-  ".yml",
-  ".yaml",
-  ".env",
-  ".gitignore"
+  // Plain / docs
+  ".txt", ".md", ".markdown", ".rst", ".adoc", ".log", ".csv", ".tsv",
+  // Web
+  ".html", ".htm", ".css", ".scss", ".sass", ".less", ".xml", ".svg",
+  ".vue", ".svelte", ".astro",
+  // JS / TS
+  ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".json", ".json5", ".jsonc",
+  // Config
+  ".yml", ".yaml", ".toml", ".ini", ".conf", ".cfg", ".properties",
+  ".env", ".editorconfig", ".gitignore", ".gitattributes", ".dockerignore",
+  ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc", ".babelrc",
+  // Shell / scripts
+  ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+  // Languages
+  ".py", ".rb", ".php", ".pl", ".lua", ".r", ".java", ".kt", ".kts",
+  ".scala", ".groovy", ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp",
+  ".cs", ".fs", ".m", ".mm", ".swift", ".dart", ".ex", ".exs", ".erl",
+  ".clj", ".cljs", ".hs", ".ml", ".nim", ".zig", ".jl", ".v",
+  // Data / query
+  ".sql", ".graphql", ".gql", ".proto", ".prisma",
+  // Build / infra
+  ".dockerfile", ".makefile", ".mk", ".cmake", ".gradle", ".sbt",
+  ".tf", ".tfvars", ".hcl",
+  // Misc
+  ".patch", ".diff", ".srt", ".vtt"
+]);
+
+const textFilenames = new Set([
+  "dockerfile",
+  "makefile",
+  "rakefile",
+  "gemfile",
+  "procfile",
+  "license",
+  "readme",
+  "changelog",
+  "authors",
+  "contributors"
 ]);
 
 /**
@@ -26,7 +53,8 @@ const textExtensions = new Set([
  *   rootPath: string,
  *   sessionCode: string,
  *   defaultPermission: "VIEW_ONLY" | "VIEW_EDIT",
- *   createdAt: number
+ *   createdAt: number,
+ *   singleFileName?: string | null
  * }} WorkspaceRecord
  */
 
@@ -83,6 +111,13 @@ export class WorkspaceService {
     if (!ws) {
       throw new AppError("WORKSPACE_NOT_FOUND", "Workspace is not active", false, "filesystem");
     }
+    if (ws.singleFileName) {
+      const normalized = this.normalizeRelativePath(relativePath);
+      if (normalized !== ws.singleFileName) {
+        throw new AppError("PATH_TRAVERSAL", "Invalid path requested", false, "filesystem");
+      }
+      return path.join(ws.rootPath, ws.singleFileName);
+    }
     const target = path.resolve(ws.rootPath, relativePath);
     const root = path.resolve(ws.rootPath);
     if (target !== root && !target.startsWith(root + path.sep)) {
@@ -96,7 +131,8 @@ export class WorkspaceService {
   }
 
   getMimeType(relativePath) {
-    const ext = path.extname(relativePath).toLowerCase();
+    const base = path.basename(relativePath).toLowerCase();
+    const ext = path.extname(base);
     if (ext === ".pdf") return "application/pdf";
     if (ext === ".png") return "image/png";
     if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
@@ -117,16 +153,40 @@ export class WorkspaceService {
       return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     if (ext === ".ppt") return "application/vnd.ms-powerpoint";
     if (textExtensions.has(ext)) return "text/plain";
+    const nameNoExt = ext ? base.slice(0, -ext.length) : base;
+    if (textFilenames.has(base) || textFilenames.has(nameNoExt)) return "text/plain";
     return "application/octet-stream";
   }
 
   isBinary(relativePath) {
-    return this.getMimeType(relativePath) !== "text/plain";
+    const mime = this.getMimeType(relativePath);
+    if (mime === "text/plain") return false;
+    if (mime === "application/octet-stream") return false;
+    return true;
   }
 
   async listFiles(workspaceId) {
     const ws = this.workspaces.get(workspaceId);
     if (!ws) return [];
+
+    if (ws.singleFileName) {
+      const fullPath = path.join(ws.rootPath, ws.singleFileName);
+      try {
+        const stat = await fs.stat(fullPath);
+        return [
+          {
+            id: ws.singleFileName,
+            name: ws.singleFileName,
+            path: ws.singleFileName,
+            isDirectory: false,
+            size: stat.size,
+            mimeType: this.getMimeType(ws.singleFileName)
+          }
+        ];
+      } catch {
+        return [];
+      }
+    }
 
     const walk = async (dir, base = "") => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -185,6 +245,70 @@ export class WorkspaceService {
       });
     }
     await fs.writeFile(fullPath, content, "utf8");
+    return { ok: true };
+  }
+
+  async writeBinaryFile(workspaceId, relativePath, buffer) {
+    const fullPath = this.ensureInWorkspace(workspaceId, relativePath);
+    const ext = path.extname(relativePath).toLowerCase();
+    if (!BINARY_WRITE_EXTENSIONS.has(ext)) {
+      throw new AppError(
+        "UNSUPPORTED_EDIT_TYPE",
+        `Binary write not allowed for ${ext || "this file type"}`,
+        false,
+        "filesystem",
+        { relativePath }
+      );
+    }
+    if (!Buffer.isBuffer(buffer)) {
+      throw new AppError(
+        "INVALID_PAYLOAD",
+        "writeBinaryFile expected a Buffer",
+        false,
+        "filesystem",
+        { relativePath }
+      );
+    }
+
+    // Windows: transient shared locks (Search Indexer, AV scanner, Explorer preview)
+    // can hold a docx briefly after a prior op. Retry with backoff to ride through them.
+    // If Word has the file open with an exclusive lock, no retry will help — surface a clear error.
+    const attempts = [0, 150, 400, 900, 1800];
+    const transientCodes = new Set(["EBUSY", "EPERM", "EACCES"]);
+
+    for (let i = 0; i < attempts.length; i++) {
+      if (attempts[i] > 0) await new Promise((r) => setTimeout(r, attempts[i]));
+      try {
+        // Write via temp file in the same directory, then rename over the destination.
+        // Rename is more forgiving on NTFS than truncate+write when shared locks exist.
+        const dir = path.dirname(fullPath);
+        const tmpPath = path.join(dir, `.~${path.basename(fullPath)}.${process.pid}.${Date.now()}.tmp`);
+        try {
+          await fs.writeFile(tmpPath, buffer);
+          await fs.rename(tmpPath, fullPath);
+          return { ok: true };
+        } catch (err) {
+          try { await fs.unlink(tmpPath); } catch { /* best-effort */ }
+          throw err;
+        }
+      } catch (err) {
+        const code = err?.code;
+        const isLast = i === attempts.length - 1;
+        if (!transientCodes.has(code) || isLast) {
+          if (transientCodes.has(code)) {
+            throw new AppError(
+              "FILE_LOCKED",
+              `"${relativePath}" is open in another program (usually Microsoft Word). Close it on the host and try again.`,
+              true,
+              "filesystem",
+              { relativePath, cause: code }
+            );
+          }
+          throw err;
+        }
+        // else: retry after next backoff
+      }
+    }
     return { ok: true };
   }
 

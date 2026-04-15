@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage } from "electron";
 import path from "node:path";
+import { promises as fsPromises } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -105,7 +106,7 @@ const pushHostSnapshot = () => {
   const workspaces = workspaceService.listWorkspaces().map((ws) => ({
     workspaceId: ws.workspaceId,
     workspaceName: ws.workspaceName,
-    rootPath: ws.rootPath,
+    rootPath: ws.singleFileName ? path.join(ws.rootPath, ws.singleFileName) : ws.rootPath,
     sessionCode: ws.sessionCode,
     defaultPermission: ws.defaultPermission,
     createdAt: ws.createdAt,
@@ -156,14 +157,17 @@ const teardownWorkspaceWatcher = (workspaceId) => {
   crdtService.clearWorkspace(workspaceId);
 };
 
-const setupWorkspaceWatcher = (workspaceId, rootPath) => {
+const setupWorkspaceWatcher = (workspaceId, rootPath, singleFileName = null) => {
   teardownWorkspaceWatcher(workspaceId);
-  const watcher = chokidar.watch(rootPath, { ignoreInitial: true, persistent: true });
+  const watchTarget = singleFileName ? path.join(rootPath, singleFileName) : rootPath;
+  const watcher = chokidar.watch(watchTarget, { ignoreInitial: true, persistent: true });
   const timers = new Map();
   workspaceWatchers.set(workspaceId, { watcher, timers });
 
   watcher.on("change", (absolutePath) => {
-    const relativePath = path.relative(rootPath, absolutePath).split(path.sep).join("/");
+    const relativePath = singleFileName
+      ? singleFileName
+      : path.relative(rootPath, absolutePath).split(path.sep).join("/");
     if (!relativePath || relativePath.startsWith("..")) return;
     const prev = timers.get(relativePath);
     if (prev) clearTimeout(prev);
@@ -231,17 +235,28 @@ const onWireMessage = async (socket, message) => {
       return;
     }
 
-    // Auto-approve with the workspace's default permission (no host popup).
+    // Session code already validated — grant direct access.
     const permission = ws.defaultPermission ?? "VIEW_EDIT";
-    const sessionToken = sessionService.autoApproveClient({
-      workspaceId,
-      clientId,
-      displayName,
-      socket
-    }, permission);
+    const requestId = sessionService.addPendingJoin(
+      {
+        workspaceId,
+        clientId,
+        displayName,
+        correlationId: message.correlationId
+      },
+      socket,
+      () => {
+        /* no-op: immediately approved below */
+      }
+    );
+    const approval = sessionService.approveJoin(requestId, permission);
+    if (!approval) {
+      sendError(socket, message.correlationId, "JOIN_FAILED", "Unable to create session");
+      return;
+    }
 
     transportService.send(socket, "JOIN_ACCEPT", message.correlationId, {
-      sessionToken,
+      sessionToken: approval.client.sessionToken,
       workspaceName: ws.workspaceName,
       hostName: identityService?.get()?.displayName ?? app.getName(),
       workspaceId: ws.workspaceId,
@@ -313,7 +328,19 @@ const onWireMessage = async (socket, message) => {
       sendError(socket, message.correlationId, "PERMISSION_DENIED", "You have view-only access to this workspace");
       return;
     }
-    await workspaceService.writeTextFile(client.workspaceId, parsed.data.relativePath, parsed.data.content);
+    try {
+      if (parsed.data.encoding === "base64") {
+        const buf = Buffer.from(parsed.data.content, "base64");
+        await workspaceService.writeBinaryFile(client.workspaceId, parsed.data.relativePath, buf);
+      } else {
+        await workspaceService.writeTextFile(client.workspaceId, parsed.data.relativePath, parsed.data.content);
+      }
+    } catch (err) {
+      const code = err?.code ?? "SAVE_FAILED";
+      const msg = err?.message ?? "Save failed";
+      sendError(socket, message.correlationId, code, msg);
+      return;
+    }
     transportService.send(socket, "SAVE_ACK", message.correlationId, {
       relativePath: parsed.data.relativePath
     });
@@ -956,13 +983,59 @@ ipcMain.handle("identity:set", async (_event, payload) => {
 // ---------------------------------------------------------------------------
 ipcMain.handle("workspace:create", async (_event, payload) => {
   try {
-    const selected = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    logger.info("workspace:create dialog opening");
+    // Electron's showOpenDialog cannot combine openFile + openDirectory on
+    // Windows or Linux — only macOS supports it. On those platforms we ask
+    // the user which they want first, then open the matching single-mode
+    // dialog so both files and folders remain selectable.
+    let pickProperties;
+    if (process.platform === "darwin") {
+      pickProperties = ["openFile", "openDirectory", "showHiddenFiles", "treatPackageAsDirectory"];
+    } else {
+      const choice = mainWindow
+        ? await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            title: "Share file or folder",
+            message: "What would you like to share?",
+            buttons: ["File", "Folder", "Cancel"],
+            defaultId: 0,
+            cancelId: 2
+          })
+        : await dialog.showMessageBox({
+            type: "question",
+            title: "Share file or folder",
+            message: "What would you like to share?",
+            buttons: ["File", "Folder", "Cancel"],
+            defaultId: 0,
+            cancelId: 2
+          });
+      if (choice.response === 2) {
+        logger.info("workspace:create dialog cancelled at chooser");
+        return { ok: false, cancelled: true };
+      }
+      pickProperties = choice.response === 0
+        ? ["openFile", "showHiddenFiles"]
+        : ["openDirectory", "showHiddenFiles"];
+    }
+    const dialogOptions = {
+      title: "Select a file or folder to share",
+      buttonLabel: "Share",
+      properties: pickProperties
+    };
+    const selected = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+    logger.info({ canceled: selected.canceled, count: selected.filePaths.length }, "workspace:create dialog result");
     if (selected.canceled || selected.filePaths.length === 0) {
       return { ok: false, cancelled: true };
     }
 
-    const rootPath = selected.filePaths[0];
-    const proposedName = (payload?.workspaceName || path.basename(rootPath)).trim();
+    const selectedPath = selected.filePaths[0];
+    const selectedStat = await fsPromises.stat(selectedPath);
+    const isFile = selectedStat.isFile();
+    const rootPath = isFile ? path.dirname(selectedPath) : selectedPath;
+    const singleFileName = isFile ? path.basename(selectedPath) : null;
+    const proposedName = (payload?.workspaceName || path.basename(selectedPath)).trim();
     if (workspaceService.isWorkspaceNameTaken(proposedName)) {
       return { ok: false, error: "A workspace with this name is already being hosted" };
     }
@@ -976,11 +1049,12 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
       rootPath,
       sessionCode,
       defaultPermission,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      singleFileName
     });
 
     ensureServerStarted();
-    setupWorkspaceWatcher(workspaceId, rootPath);
+    setupWorkspaceWatcher(workspaceId, rootPath, singleFileName);
 
     discovery.advertiseWorkspace({
       workspaceName: proposedName,
@@ -994,7 +1068,7 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
     const record = {
       workspaceId,
       workspaceName: proposedName,
-      rootPath,
+      rootPath: singleFileName ? path.join(rootPath, singleFileName) : rootPath,
       sessionCode,
       defaultPermission,
       createdAt: Date.now(),
@@ -1022,6 +1096,7 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
 ipcMain.handle("workspace:list", async () => {
   return workspaceService.listWorkspaces().map((ws) => ({
     ...ws,
+    rootPath: ws.singleFileName ? path.join(ws.rootPath, ws.singleFileName) : ws.rootPath,
     clients: sessionService.listConnectedClientsForWorkspace(ws.workspaceId)
   }));
 });
@@ -1368,7 +1443,8 @@ ipcMain.handle("client:save-file", async (_event, payload) => {
     sessionToken: activeSessionToken,
     relativePath: payload.relativePath,
     content: payload.content,
-    encoding: "utf8"
+    encoding: payload.encoding ?? "utf8",
+    isBinary: payload.isBinary ?? false
   });
   return { ok: true, correlationId };
 });
@@ -1419,6 +1495,7 @@ ipcMain.handle("client:disconnect", async () => {
   transportService.disconnectClient();
   activeSessionToken = null;
   activeJoinedWorkspaceId = null;
+  lastJoinedWorkspace = null;
   mainWindow?.webContents.send("host:status", {
     state: "client-disconnected",
     message: "Disconnected from session."
