@@ -27,7 +27,6 @@ export class DiscoveryService {
     this.clipboardAdvertisement = null;
     this.clipboardBrowser = null;
     this.clipboardPeers = new Map();
-    this.clipboardPruneInterval = null;
   }
 
   advertiseWorkspace({ workspaceName, hostName, workspaceId, sessionCode, port }) {
@@ -153,6 +152,7 @@ export class DiscoveryService {
 
     this.clipboardBrowser.on("up", (service) => {
       const peerId = service?.txt?.peerId ?? service.fqdn;
+      const existing = this.clipboardPeers.get(peerId);
       this.clipboardPeers.set(peerId, {
         peerId,
         hostName: service?.txt?.hostName ?? service.host,
@@ -160,7 +160,10 @@ export class DiscoveryService {
         port: service.port,
         lastSeenAt: Date.now()
       });
-      onChange(Array.from(this.clipboardPeers.values()));
+      // Avoid noisy UI updates when Bonjour re-announces unchanged peers.
+      if (!existing || existing.hostAddress !== (service.referer?.address || service.addresses?.[0] || "0.0.0.0") || existing.port !== service.port || existing.hostName !== (service?.txt?.hostName ?? service.host)) {
+        onChange(Array.from(this.clipboardPeers.values()));
+      }
     });
 
     this.clipboardBrowser.on("down", (service) => {
@@ -169,26 +172,13 @@ export class DiscoveryService {
       onChange(Array.from(this.clipboardPeers.values()));
     });
 
-    this.clipboardPruneInterval = setInterval(() => {
-      const next = new Map();
-      const now = Date.now();
-      for (const [id, peer] of this.clipboardPeers.entries()) {
-        if (now - peer.lastSeenAt <= 20_000) next.set(id, peer);
-      }
-      if (next.size !== this.clipboardPeers.size) {
-        this.clipboardPeers = next;
-        onChange(Array.from(this.clipboardPeers.values()));
-      }
-    }, 10_000);
+    // No TTL pruning for clipboard peers; rely on Bonjour "down" events.
+    // This prevents peers from being dropped prematurely and sync working only once.
   }
 
   stopBrowsingClipboardPeers() {
     this.clipboardBrowser?.stop();
     this.clipboardBrowser = null;
-    if (this.clipboardPruneInterval) {
-      clearInterval(this.clipboardPruneInterval);
-      this.clipboardPruneInterval = null;
-    }
     this.clipboardPeers.clear();
   }
 

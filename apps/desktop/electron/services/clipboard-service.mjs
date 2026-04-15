@@ -291,10 +291,21 @@ export class ClipboardService extends EventEmitter {
     const text = clipboard.readText() || "";
     const imageDataUrl = clipboard.readImage().toDataURL();
     const filePaths = clipboard.readFilePaths?.() ?? [];
+    let macFileUrlPayload = "";
+    try {
+      const formats = clipboard.availableFormats?.() ?? [];
+      const fileUrlFormat = formats.find((fmt) => fmt.toLowerCase() === "public.file-url");
+      if (fileUrlFormat) {
+        macFileUrlPayload = clipboard.readBuffer(fileUrlFormat).toString("utf8").replace(/\u0000/g, "");
+      }
+    } catch {
+      // Ignore format parsing failures; signature can still use text/image/filePaths.
+    }
     return JSON.stringify({
       text,
       imageDataUrl,
-      filePaths
+      filePaths,
+      macFileUrlPayload
     });
   }
 }
