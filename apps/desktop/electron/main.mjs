@@ -478,10 +478,43 @@ ipcMain.handle("identity:set", async (_event, payload) => {
 ipcMain.handle("workspace:create", async (_event, payload) => {
   try {
     logger.info("workspace:create dialog opening");
+    // Electron's showOpenDialog cannot combine openFile + openDirectory on
+    // Windows or Linux — only macOS supports it. On those platforms we ask
+    // the user which they want first, then open the matching single-mode
+    // dialog so both files and folders remain selectable.
+    let pickProperties;
+    if (process.platform === "darwin") {
+      pickProperties = ["openFile", "openDirectory", "showHiddenFiles", "treatPackageAsDirectory"];
+    } else {
+      const choice = mainWindow
+        ? await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            title: "Share file or folder",
+            message: "What would you like to share?",
+            buttons: ["File", "Folder", "Cancel"],
+            defaultId: 0,
+            cancelId: 2
+          })
+        : await dialog.showMessageBox({
+            type: "question",
+            title: "Share file or folder",
+            message: "What would you like to share?",
+            buttons: ["File", "Folder", "Cancel"],
+            defaultId: 0,
+            cancelId: 2
+          });
+      if (choice.response === 2) {
+        logger.info("workspace:create dialog cancelled at chooser");
+        return { ok: false, cancelled: true };
+      }
+      pickProperties = choice.response === 0
+        ? ["openFile", "showHiddenFiles"]
+        : ["openDirectory", "showHiddenFiles"];
+    }
     const dialogOptions = {
       title: "Select a file or folder to share",
       buttonLabel: "Share",
-      properties: ["openFile", "openDirectory", "showHiddenFiles", "treatPackageAsDirectory"]
+      properties: pickProperties
     };
     const selected = mainWindow
       ? await dialog.showOpenDialog(mainWindow, dialogOptions)
