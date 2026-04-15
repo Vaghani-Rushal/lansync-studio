@@ -11,8 +11,9 @@ type Toast = { id: string; message: string; type: "copied" | "pasted" };
 
 // Detect Mac so we show the right shortcut labels
 const isMac = navigator.platform.toLowerCase().includes("mac");
-const COPY_SHORTCUT = isMac ? "⌘⇧D" : "Ctrl+Shift+D";
-const PASTE_SHORTCUT = isMac ? "⌘⇧F" : "Ctrl+Shift+F";
+const COPY_SHORTCUT = isMac ? "⌘⌥C" : "Ctrl+Shift+D";
+const COPY_IMAGE_SHORTCUT = isMac ? "⌘⌥C" : "Ctrl+Shift+S";
+const PASTE_SHORTCUT = isMac ? "⌘⌥V" : "Ctrl+Shift+F";
 
 export function ClipboardHistory({ bridgeReady }: { bridgeReady: boolean }) {
   const [history, setHistory] = useState<ClipboardItem[]>([]);
@@ -98,8 +99,13 @@ export function ClipboardHistory({ bridgeReady }: { bridgeReady: boolean }) {
         {/* Shortcut hints */}
         <div style={{ padding: "10px 14px", borderBottom: "1px solid #1e2d42", display: "flex", gap: 8, justifyContent: "center" }}>
           <span style={{ fontSize: "11px", background: "#0f1a2b", border: "1px solid #2a3d58", borderRadius: "6px", padding: "4px 10px", color: "#7fb0ff" }}>
-            <strong>{COPY_SHORTCUT}</strong> Copy
+            <strong>{COPY_SHORTCUT}</strong> Copy (text/image)
           </span>
+          {!isMac && (
+            <span style={{ fontSize: "11px", background: "#0f1a2b", border: "1px solid #2a3d58", borderRadius: "6px", padding: "4px 10px", color: "#7fb0ff" }}>
+              <strong>{COPY_IMAGE_SHORTCUT}</strong> Copy image
+            </span>
+          )}
           <span style={{ fontSize: "11px", background: "#0f1a2b", border: "1px solid #2a3d58", borderRadius: "6px", padding: "4px 10px", color: "#7fb0ff" }}>
             <strong>{PASTE_SHORTCUT}</strong> Paste
           </span>
@@ -111,7 +117,7 @@ export function ClipboardHistory({ bridgeReady }: { bridgeReady: boolean }) {
               <p style={{ fontSize: "24px", margin: "0 0 10px 0" }}>📋</p>
               <p style={{ margin: "0 0 10px 0" }}>Clipboard is empty.</p>
               <p style={{ opacity: 0.7 }}>
-                Press <strong>{COPY_SHORTCUT}</strong> anywhere to share what you copied.
+                Press <strong>{COPY_SHORTCUT}</strong> to share copied text or images.
               </p>
             </div>
           ) : (

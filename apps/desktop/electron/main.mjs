@@ -713,9 +713,19 @@ class LanSyncPasteHelper {
 async function simulatePasteKeystroke() {
   try {
     if (process.platform === "darwin") {
-      await execAsync(
-        `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
-      );
+      // Cmd+Alt+V can leave Option physically held for a moment.
+      // Wait briefly so target apps receive a clean Cmd+V.
+      await new Promise((r) => setTimeout(r, 180));
+      try {
+        await execAsync(
+          `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
+        );
+      } catch {
+        // Fallback for apps that ignore character-based keystroke events.
+        await execAsync(
+          `osascript -e 'tell application "System Events" to key code 9 using command down'`
+        );
+      }
     } else if (process.platform === "win32") {
       if (pasteHelperExe && fs.existsSync(pasteHelperExe)) {
         await execAsync(`"${pasteHelperExe}"`);
@@ -818,6 +828,36 @@ async function getExplorerSelectedImagePath() {
   }
 }
 
+/**
+ * macOS fallback:
+ * Read currently selected Finder item and return it if it is an image file.
+ * Used when simulated copy does not update clipboard while global shortcut keys are held.
+ */
+async function getMacFinderSelectedImagePath() {
+  if (process.platform !== "darwin") return null;
+  const scriptLines = [
+    'tell application "Finder"',
+    '  if not frontmost then return ""',
+    '  if (count of selection) is 0 then return ""',
+    '  set picked to item 1 of (get selection)',
+    '  return POSIX path of (picked as alias)',
+    'end tell'
+  ];
+  try {
+    const osaArgs = scriptLines.map((line) => `-e '${line}'`).join(" ");
+    const { stdout } = await execAsync(`osascript ${osaArgs}`);
+    const pickedPath = stdout.trim();
+    if (!pickedPath) return null;
+    const lower = pickedPath.toLowerCase();
+    const isImage = IMAGE_EXTS_FOR_EXPLORER.some((ext) => lower.endsWith(ext));
+    logger.info(`[getMacFinderSelectedImagePath] picked: ${pickedPath} | isImage: ${isImage}`);
+    return isImage ? pickedPath : null;
+  } catch (err) {
+    logger.warn("[getMacFinderSelectedImagePath] AppleScript query failed:", err?.message ?? String(err));
+    return null;
+  }
+}
+
 app.whenReady().then(async () => {
   // Compile Windows keystroke helpers (once per machine, non-blocking on failure)
   await prepareWindowsCopyHelper();
@@ -829,60 +869,84 @@ app.whenReady().then(async () => {
 
   // -----------------------------------------------------------------------
   // Global shortcuts
-  //   Ctrl+Shift+D  →  simulate Ctrl+C in focused app  →  capture & share
-  //   Ctrl+Shift+F  →  inject top shared item → OS clipboard (ready for Ctrl+V)
+  //   macOS:
+  //     Cmd+Alt+C   → simulate copy in focused app → capture text/image
+  //     Cmd+Alt+V   → inject top shared item to OS clipboard + auto-paste
+  //   Windows/Linux:
+  //     Ctrl+Shift+D → text capture
+  //     Ctrl+Shift+S → image capture
+  //     Ctrl+Shift+F → paste
   // -----------------------------------------------------------------------
-  const isMac      = process.platform === "darwin";
-  const copyAccel  = isMac ? "Command+Shift+D" : "CommandOrControl+Shift+D";
-  const pasteAccel = isMac ? "Command+Shift+F" : "CommandOrControl+Shift+F";
+  const isMac = process.platform === "darwin";
+  const copyAccel = isMac ? "Command+Alt+C" : "CommandOrControl+Shift+D";
+  const copyImageAccel = isMac ? null : "CommandOrControl+Shift+S";
+  const pasteAccel = isMac ? "Command+Alt+V" : "CommandOrControl+Shift+F";
+
+  const notifyCaptureResult = (item) => {
+    if (!mainWindow) return;
+    if (item) {
+      mainWindow.webContents.send("clipboard:captured", item);
+      mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
+    } else {
+      mainWindow.webContents.send("clipboard:captured", null);
+    }
+  };
 
   globalShortcut.register(copyAccel, async () => {
-    logger.info("[Shortcut] Ctrl+Shift+D fired — starting capture flow");
-
-    // Step 1: Simulate Ctrl+C in the focused app (covers text selections, etc.)
+    logger.info(`[Shortcut] ${copyAccel} fired — capture flow`);
+    if (isMac) {
+      // Finder image selection is handled directly so preview is always a real image.
+      const finderImagePath = await getMacFinderSelectedImagePath();
+      if (finderImagePath && fs.existsSync(finderImagePath)) {
+        const item = clipboardService.captureImageFromFilePath(finderImagePath);
+        notifyCaptureResult(item);
+        return;
+      }
+      // Non-Finder apps continue through the simulated Cmd+C clipboard capture path.
+      await simulateCopyKeystroke();
+      const item = clipboardService.captureNow();
+      notifyCaptureResult(item);
+      return;
+    }
     await simulateCopyKeystroke();
-
-    // Step 2: Try to capture from clipboard (text, bitmap, or CF_HDROP file paths)
-    let item = clipboardService.captureNow();
-    logger.info(`[Shortcut] captureNow result: ${item ? item.historyId : "null"}`);
-
-    // Step 3: FALLBACK — if nothing captured, directly ask File Explorer
-    //   what files the user has selected, then load the image from disk.
-    //   This handles the CF_HDROP case where Electron's clipboard API
-    //   cannot read CF_HDROP as a native image.
-    if (!item) {
-      logger.info("[Shortcut] captureNow was empty — querying File Explorer selection...");
-      const explorerImagePath = await getExplorerSelectedImagePath();
-      if (explorerImagePath && fs.existsSync(explorerImagePath)) {
-        try {
-          const img = nativeImage.createFromPath(explorerImagePath);
-          if (!img.isEmpty()) {
-            // Write the real bitmap to clipboard so captureNow() can read it normally
-            clipboard.writeImage(img);
-            logger.info(`[Shortcut] Explorer image preloaded to clipboard: ${explorerImagePath}`);
-            item = clipboardService.captureNow();
-          } else {
-            logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${explorerImagePath}`);
-          }
-        } catch (err) {
-          logger.warn("[Shortcut] Failed to load Explorer image:", err.message);
-        }
-      }
-    }
-
-    // Step 4: Notify UI
-    if (mainWindow) {
-      if (item) {
-        mainWindow.webContents.send("clipboard:captured", item);
-        mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
-      } else {
-        mainWindow.webContents.send("clipboard:captured", null);
-      }
-    }
+    const item = clipboardService.captureTextOnly();
+    notifyCaptureResult(item);
   });
 
+  if (copyImageAccel) {
+    globalShortcut.register(copyImageAccel, async () => {
+      logger.info(`[Shortcut] ${copyImageAccel} fired — capture image flow`);
+      await simulateCopyKeystroke();
+
+      // First attempt: capture image directly from clipboard.
+      let item = clipboardService.captureImageOnly();
+
+      // Windows fallback: check selected Explorer images when clipboard only has file refs.
+      if (!item) {
+        logger.info("[Shortcut] image capture empty — querying File Explorer selection...");
+        const explorerImagePath = await getExplorerSelectedImagePath();
+        if (explorerImagePath && fs.existsSync(explorerImagePath)) {
+          try {
+            const img = nativeImage.createFromPath(explorerImagePath);
+            if (!img.isEmpty()) {
+              clipboard.writeImage(img);
+              logger.info(`[Shortcut] Explorer image preloaded to clipboard: ${explorerImagePath}`);
+              item = clipboardService.captureImageOnly();
+            } else {
+              logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${explorerImagePath}`);
+            }
+          } catch (err) {
+            logger.warn("[Shortcut] Failed to load Explorer image:", err.message);
+          }
+        }
+      }
+
+      notifyCaptureResult(item);
+    });
+  }
+
   globalShortcut.register(pasteAccel, async () => {
-    logger.info("[Shortcut] Ctrl+Shift+F — writing top shared item to OS clipboard");
+    logger.info(`[Shortcut] ${pasteAccel} — writing top shared item to OS clipboard`);
 
     // Step 1: Write top history item to OS clipboard as CF_BITMAP
     const item = clipboardService.pasteTop();
@@ -916,9 +980,9 @@ app.whenReady().then(async () => {
 
       // Step 3: Simulate Ctrl+V in the focused app
       await simulatePasteKeystroke();
-      logger.info(`[Shortcut] Ctrl+Shift+F — auto-pasted item ${item.historyId}`);
+      logger.info(`[Shortcut] ${pasteAccel} — auto-pasted item ${item.historyId}`);
     } else {
-      logger.info("[Shortcut] Ctrl+Shift+F — history is empty, nothing to paste");
+      logger.info(`[Shortcut] ${pasteAccel} — history is empty, nothing to paste`);
     }
 
     if (mainWindow) {
