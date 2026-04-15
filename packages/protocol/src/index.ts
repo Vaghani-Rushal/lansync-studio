@@ -153,7 +153,8 @@ export const saveFileSchema = z.object({
   sessionToken: z.string().min(16),
   relativePath: z.string().min(1),
   content: z.string(),
-  encoding: z.enum(["utf8"]).default("utf8")
+  encoding: z.enum(["utf8", "base64"]).default("utf8"),
+  isBinary: z.boolean().optional()
 });
 
 export const crdtInitSchema = z.object({

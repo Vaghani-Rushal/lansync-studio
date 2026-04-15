@@ -87,6 +87,8 @@ export const useLanShareBridge = () => {
   const setPreviewUrl = useLanShareStore((s) => s.setPreviewUrl);
   const setPreviewBuffer = useLanShareStore((s) => s.setPreviewBuffer);
   const setDocxPreview = useLanShareStore((s) => s.setDocxPreview);
+  const setDocxOriginalBuffer = useLanShareStore((s) => s.setDocxOriginalBuffer);
+  const setDocxReferenceHtml = useLanShareStore((s) => s.setDocxReferenceHtml);
   const setStreamMeta = useLanShareStore((s) => s.setStreamMeta);
   const setStreamState = useLanShareStore((s) => s.setStreamState);
   const pushClientMessage = useLanShareStore((s) => s.pushClientMessage);
@@ -368,6 +370,8 @@ export const useLanShareBridge = () => {
             );
             setPreviewText("");
             setDocxPreview(null);
+            setDocxOriginalBuffer(null);
+            setDocxReferenceHtml(null);
           } else if (isDocx) {
             revokeBlob();
             setPreviewText("");
@@ -375,13 +379,19 @@ export const useLanShareBridge = () => {
             setIsDirty(false);
             setDocxPreview({ status: "loading" });
             const arrayBuffer = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength);
+            setDocxOriginalBuffer(arrayBuffer);
             void mammoth
-              .convertToHtml({ arrayBuffer })
-              .then((result) => setDocxPreview({ status: "ready", html: result.value }))
+              .convertToHtml({ arrayBuffer: arrayBuffer.slice(0) })
+              .then((result) => {
+                setDocxReferenceHtml(result.value);
+                setDocxPreview({ status: "ready", html: result.value });
+              })
               .catch((err) => setDocxPreview({ status: "error", message: err instanceof Error ? err.message : String(err) }));
           } else if (isTextEditableFile(mimeType, payload.relativePath) || isLikelyTextContent(uint8)) {
             revokeBlob();
             setDocxPreview(null);
+            setDocxOriginalBuffer(null);
+            setDocxReferenceHtml(null);
             const text = new TextDecoder().decode(uint8);
             setPreviewText(text);
             setEditorText(text);
@@ -396,6 +406,8 @@ export const useLanShareBridge = () => {
           } else {
             revokeBlob();
             setDocxPreview(null);
+            setDocxOriginalBuffer(null);
+            setDocxReferenceHtml(null);
             setPreviewText(toHexDumpPreview(payload.relativePath, mimeType, uint8));
             setEditorText("");
             setIsDirty(false);

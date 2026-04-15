@@ -61,6 +61,8 @@ type StoreState = {
   previewUrl: string | null;
   previewBuffer: ArrayBuffer | null;
   docxPreview: null | { status: "loading" } | { status: "ready"; html: string } | { status: "error"; message: string };
+  docxOriginalBuffer: ArrayBuffer | null;
+  docxReferenceHtml: string | null;
   streamState: StreamState;
   streamMeta: StreamMeta | null;
 
@@ -94,6 +96,8 @@ type StoreState = {
   setPreviewUrl: (url: string | null) => void;
   setPreviewBuffer: (buffer: ArrayBuffer | null) => void;
   setDocxPreview: (value: StoreState["docxPreview"]) => void;
+  setDocxOriginalBuffer: (buffer: ArrayBuffer | null) => void;
+  setDocxReferenceHtml: (html: string | null) => void;
   setStreamState: (state: StreamState) => void;
   setStreamMeta: (meta: StreamMeta | null | ((prev: StreamMeta | null) => StreamMeta | null)) => void;
   resetPreviewState: () => void;
@@ -135,6 +139,8 @@ export const useLanShareStore = create<StoreState>((set) => ({
   previewUrl: null,
   previewBuffer: null,
   docxPreview: null,
+  docxOriginalBuffer: null,
+  docxReferenceHtml: null,
   streamState: "idle",
   streamMeta: null,
 
@@ -180,6 +186,8 @@ export const useLanShareStore = create<StoreState>((set) => ({
   setPreviewUrl: (previewUrl) => set({ previewUrl }),
   setPreviewBuffer: (previewBuffer) => set({ previewBuffer }),
   setDocxPreview: (docxPreview) => set({ docxPreview }),
+  setDocxOriginalBuffer: (docxOriginalBuffer) => set({ docxOriginalBuffer }),
+  setDocxReferenceHtml: (docxReferenceHtml) => set({ docxReferenceHtml }),
   setStreamState: (streamState) => set({ streamState }),
   setStreamMeta: (streamMeta) =>
     set((state) => ({
@@ -195,6 +203,8 @@ export const useLanShareStore = create<StoreState>((set) => ({
       previewUrl: null,
       previewBuffer: null,
       docxPreview: null,
+      docxOriginalBuffer: null,
+      docxReferenceHtml: null,
       streamState: "idle",
       streamMeta: null
     }),
@@ -215,6 +225,8 @@ export const useLanShareStore = create<StoreState>((set) => ({
       previewUrl: null,
       previewBuffer: null,
       docxPreview: null,
+      docxOriginalBuffer: null,
+      docxReferenceHtml: null,
       streamState: "idle",
       streamMeta: null
     })

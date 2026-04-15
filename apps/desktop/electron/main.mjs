@@ -301,7 +301,19 @@ const onWireMessage = async (socket, message) => {
       sendError(socket, message.correlationId, "PERMISSION_DENIED", "You have view-only access to this workspace");
       return;
     }
-    await workspaceService.writeTextFile(client.workspaceId, parsed.data.relativePath, parsed.data.content);
+    try {
+      if (parsed.data.encoding === "base64") {
+        const buf = Buffer.from(parsed.data.content, "base64");
+        await workspaceService.writeBinaryFile(client.workspaceId, parsed.data.relativePath, buf);
+      } else {
+        await workspaceService.writeTextFile(client.workspaceId, parsed.data.relativePath, parsed.data.content);
+      }
+    } catch (err) {
+      const code = err?.code ?? "SAVE_FAILED";
+      const msg = err?.message ?? "Save failed";
+      sendError(socket, message.correlationId, code, msg);
+      return;
+    }
     transportService.send(socket, "SAVE_ACK", message.correlationId, {
       relativePath: parsed.data.relativePath
     });
@@ -478,10 +490,43 @@ ipcMain.handle("identity:set", async (_event, payload) => {
 ipcMain.handle("workspace:create", async (_event, payload) => {
   try {
     logger.info("workspace:create dialog opening");
+    // Electron's showOpenDialog cannot combine openFile + openDirectory on
+    // Windows or Linux — only macOS supports it. On those platforms we ask
+    // the user which they want first, then open the matching single-mode
+    // dialog so both files and folders remain selectable.
+    let pickProperties;
+    if (process.platform === "darwin") {
+      pickProperties = ["openFile", "openDirectory", "showHiddenFiles", "treatPackageAsDirectory"];
+    } else {
+      const choice = mainWindow
+        ? await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            title: "Share file or folder",
+            message: "What would you like to share?",
+            buttons: ["File", "Folder", "Cancel"],
+            defaultId: 0,
+            cancelId: 2
+          })
+        : await dialog.showMessageBox({
+            type: "question",
+            title: "Share file or folder",
+            message: "What would you like to share?",
+            buttons: ["File", "Folder", "Cancel"],
+            defaultId: 0,
+            cancelId: 2
+          });
+      if (choice.response === 2) {
+        logger.info("workspace:create dialog cancelled at chooser");
+        return { ok: false, cancelled: true };
+      }
+      pickProperties = choice.response === 0
+        ? ["openFile", "showHiddenFiles"]
+        : ["openDirectory", "showHiddenFiles"];
+    }
     const dialogOptions = {
       title: "Select a file or folder to share",
       buttonLabel: "Share",
-      properties: ["openFile", "openDirectory", "showHiddenFiles", "treatPackageAsDirectory"]
+      properties: pickProperties
     };
     const selected = mainWindow
       ? await dialog.showOpenDialog(mainWindow, dialogOptions)
@@ -903,7 +948,8 @@ ipcMain.handle("client:save-file", async (_event, payload) => {
     sessionToken: activeSessionToken,
     relativePath: payload.relativePath,
     content: payload.content,
-    encoding: "utf8"
+    encoding: payload.encoding ?? "utf8",
+    isBinary: payload.isBinary ?? false
   });
   return { ok: true, correlationId };
 });
