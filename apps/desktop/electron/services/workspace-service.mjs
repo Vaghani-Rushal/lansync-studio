@@ -269,7 +269,46 @@ export class WorkspaceService {
         { relativePath }
       );
     }
-    await fs.writeFile(fullPath, buffer);
+
+    // Windows: transient shared locks (Search Indexer, AV scanner, Explorer preview)
+    // can hold a docx briefly after a prior op. Retry with backoff to ride through them.
+    // If Word has the file open with an exclusive lock, no retry will help — surface a clear error.
+    const attempts = [0, 150, 400, 900, 1800];
+    const transientCodes = new Set(["EBUSY", "EPERM", "EACCES"]);
+
+    for (let i = 0; i < attempts.length; i++) {
+      if (attempts[i] > 0) await new Promise((r) => setTimeout(r, attempts[i]));
+      try {
+        // Write via temp file in the same directory, then rename over the destination.
+        // Rename is more forgiving on NTFS than truncate+write when shared locks exist.
+        const dir = path.dirname(fullPath);
+        const tmpPath = path.join(dir, `.~${path.basename(fullPath)}.${process.pid}.${Date.now()}.tmp`);
+        try {
+          await fs.writeFile(tmpPath, buffer);
+          await fs.rename(tmpPath, fullPath);
+          return { ok: true };
+        } catch (err) {
+          try { await fs.unlink(tmpPath); } catch { /* best-effort */ }
+          throw err;
+        }
+      } catch (err) {
+        const code = err?.code;
+        const isLast = i === attempts.length - 1;
+        if (!transientCodes.has(code) || isLast) {
+          if (transientCodes.has(code)) {
+            throw new AppError(
+              "FILE_LOCKED",
+              `"${relativePath}" is open in another program (usually Microsoft Word). Close it on the host and try again.`,
+              true,
+              "filesystem",
+              { relativePath, cause: code }
+            );
+          }
+          throw err;
+        }
+        // else: retry after next backoff
+      }
+    }
     return { ok: true };
   }
 
