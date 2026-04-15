@@ -1,6 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage } from "electron";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import fs from "node:fs";
+import os from "node:os";
+const execAsync = promisify(exec);
 import chokidar from "chokidar";
 import {
   crdtInitSchema,
@@ -35,16 +40,19 @@ const transportService = new TransportService(sessionService, workspaceService);
 const crdtService = new CrdtService(workspaceService);
 const clipboardService = new ClipboardService();
 
-clipboardService.on("local-clipboard-change", (item) => {
+clipboardService.on("manual-clipboard-capture", (item) => {
+  // Broadcast to all clients if we are the Host
   for (const ws of workspaceService.listWorkspaces()) {
     transportService.broadcastToWorkspace(ws.workspaceId, "CLIPBOARD_SYNC", randomUUID(), item);
   }
+  // Send to Host if we are a Client
   if (transportService.client && activeSessionToken) {
     transportService.send(transportService.client, "CLIPBOARD_SYNC", randomUUID(), {
       ...item,
       sessionToken: activeSessionToken
     });
   }
+  // Refresh the UI sidebar
   if (mainWindow) {
     mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
   }
@@ -418,21 +426,21 @@ const onWireMessage = async (socket, message) => {
       sendError(socket, message.correlationId, "INVALID_CLIPBOARD_SYNC", "Clipboard sync payload is invalid");
       return;
     }
-    
+
     clipboardService.writeFromRemote(parsed.data);
-    
+
     if (parsed.data.sessionToken) {
-       const client = sessionService.validateToken(parsed.data.sessionToken, socket);
-       if (client) {
-          for (const target of sessionService.listConnectedSessionsForWorkspace(client.workspaceId)) {
-            if (target.socket === socket) continue;
-            transportService.send(target.socket, "CLIPBOARD_SYNC", message.correlationId, parsed.data);
-          }
-       }
+      const client = sessionService.validateToken(parsed.data.sessionToken, socket);
+      if (client) {
+        for (const target of sessionService.listConnectedSessionsForWorkspace(client.workspaceId)) {
+          if (target.socket === socket) continue;
+          transportService.send(target.socket, "CLIPBOARD_SYNC", message.correlationId, parsed.data);
+        }
+      }
     }
-    
+
     if (mainWindow) {
-       mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
+      mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
     }
   }
 };
@@ -458,11 +466,427 @@ const ensureServerStarted = () => {
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
+
+/**
+ * Why VBScript / wscript failed:
+ * When the user presses Ctrl+Shift+D, both Ctrl AND Shift are physically held.
+ * Any Ctrl+C simulation that Shift is still held as "GetKeyState(VK_SHIFT)=DOWN"
+ * – so the target app (Chrome, Word, etc.) receives Ctrl+SHIFT+C, not Ctrl+C.
+ * Ctrl+Shift+C opens DevTools in Chrome, which is NOT what we want.
+ *
+ * The ONLY fix: inject a "Shift UP" via Win32 SendInput BEFORE the Ctrl+C,
+ * which temporarily releases Shift from the system's key state.
+ *
+ * Solution: compile a tiny C# helper EXE once at startup that calls SendInput
+ * with the correct sequence: [Shift UP] [Ctrl+C] — runs in ~5ms.
+ */
+
+/** Path to the pre-compiled Windows copy-selection helper */
+let copyHelperExe = null;
+
+/** Path to the pre-compiled Windows paste helper */
+let pasteHelperExe = null;
+
+/**
+ * Writes and compiles a tiny C# EXE that properly injects:
+ *   Shift UP → Ctrl DOWN → C DOWN → C UP → Ctrl UP
+ * This avoids the Ctrl+Shift+C modifier conflict.
+ *
+ * Uses csc.exe from .NET Framework (present on all modern Windows).
+ * Only compiled once; subsequent runs reuse the cached EXE.
+ */
+async function prepareWindowsCopyHelper() {
+  if (process.platform !== "win32") return;
+
+  const tmpDir = os.tmpdir();
+  const csPath  = path.join(tmpDir, "LanSyncCopyHelper.cs");
+  const exePath = path.join(tmpDir, "LanSyncCopyHelper.exe");
+
+  // Reuse cached EXE from a previous run of the app
+  if (fs.existsSync(exePath)) {
+    copyHelperExe = exePath;
+    logger.info(`[Clipboard] Reusing compiled helper: ${exePath}`);
+    return;
+  }
+
+  // C# source that correctly injects Shift UP then Ctrl+C via SendInput
+  const csSource = `
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+class LanSyncCopyHelper {
+    [StructLayout(LayoutKind.Sequential)]
+    struct INPUT {
+        public uint type;
+        public INPUTUNION u;
+    }
+    [StructLayout(LayoutKind.Explicit)]
+    struct INPUTUNION {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public MOUSEINPUT mi; // largest member, sets correct struct size
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT {
+        public ushort wVk, wScan;
+        public uint dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT {
+        public int dx, dy;
+        public uint mouseData, dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [DllImport("user32.dll")]
+    static extern uint SendInput(uint n, INPUT[] i, int sz);
+
+    static INPUT K(ushort vk, bool up = false) {
+        var x = new INPUT();
+        x.type = 1; // INPUT_KEYBOARD
+        x.u.ki.wVk = vk;
+        x.u.ki.dwFlags = up ? 2u : 0u; // KEYEVENTF_KEYUP = 2
+        return x;
+    }
+    static void Main() {
+        // Small delay so any pending events from Ctrl+Shift+D are flushed
+        Thread.Sleep(50);
+        // Fix: release Shift before Ctrl+C so target app sees pure Ctrl+C
+        SendInput(5, new INPUT[] {
+            K(0x10, up:true),  // Shift UP   (fixes the Ctrl+SHIFT+C bug)
+            K(0x11),           // Ctrl DOWN
+            K(0x43),           // C DOWN
+            K(0x43, up:true),  // C UP
+            K(0x11, up:true),  // Ctrl UP
+        }, Marshal.SizeOf(typeof(INPUT)));
+    }
+}
+`;
+
+  try {
+    fs.writeFileSync(csPath, csSource, "utf8");
+
+    // Locate csc.exe (ships with .NET Framework on all modern Windows)
+    const cscCandidates = [
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v2.0.50727\\csc.exe"
+    ];
+    const cscPath = cscCandidates.find((p) => fs.existsSync(p));
+
+    if (!cscPath) {
+      logger.warn("[Clipboard] csc.exe not found – Ctrl+Shift+D may capture stale clipboard on Windows");
+      return;
+    }
+
+    await execAsync(`"${cscPath}" /nologo /target:exe /out:"${exePath}" "${csPath}"`);
+    copyHelperExe = exePath;
+    logger.info(`[Clipboard] Copy helper compiled successfully: ${exePath}`);
+  } catch (err) {
+    logger.warn("[Clipboard] Failed to compile copy helper:", err.message);
+  }
+}
+
+/**
+ * Compiles a tiny C# EXE that injects:
+ *   Shift UP → Ctrl DOWN → V DOWN → V UP → Ctrl UP
+ * This releases the Shift modifier left over from Ctrl+Shift+F,
+ * then pastes the clipboard content into the focused window.
+ */
+async function preparePasteHelper() {
+  if (process.platform !== "win32") return;
+
+  const tmpDir  = os.tmpdir();
+  const csPath  = path.join(tmpDir, "LanSyncPasteHelper.cs");
+  const exePath = path.join(tmpDir, "LanSyncPasteHelper.exe");
+
+  if (fs.existsSync(exePath)) {
+    pasteHelperExe = exePath;
+    logger.info(`[Clipboard] Reusing paste helper: ${exePath}`);
+    return;
+  }
+
+  const csSource = `
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+class LanSyncPasteHelper {
+    [StructLayout(LayoutKind.Sequential)]
+    struct INPUT {
+        public uint type;
+        public INPUTUNION u;
+    }
+    [StructLayout(LayoutKind.Explicit)]
+    struct INPUTUNION {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public MOUSEINPUT mi;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT {
+        public ushort wVk, wScan;
+        public uint dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT {
+        public int dx, dy;
+        public uint mouseData, dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [DllImport("user32.dll")]
+    static extern uint SendInput(uint n, INPUT[] i, int sz);
+
+    static INPUT K(ushort vk, bool up = false) {
+        var x = new INPUT();
+        x.type = 1;
+        x.u.ki.wVk = vk;
+        x.u.ki.dwFlags = up ? 2u : 0u;
+        return x;
+    }
+    static void Main() {
+        // Wait for clipboard write to settle before pasting
+        Thread.Sleep(150);
+        // Release Shift (held from Ctrl+Shift+F) then send Ctrl+V
+        SendInput(5, new INPUT[] {
+            K(0x10, up:true),  // Shift UP
+            K(0x11),           // Ctrl DOWN
+            K(0x56),           // V DOWN
+            K(0x56, up:true),  // V UP
+            K(0x11, up:true),  // Ctrl UP
+        }, Marshal.SizeOf(typeof(INPUT)));
+    }
+}
+`;
+
+  try {
+    fs.writeFileSync(csPath, csSource, "utf8");
+    const cscCandidates = [
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v2.0.50727\\csc.exe"
+    ];
+    const cscPath = cscCandidates.find((p) => fs.existsSync(p));
+    if (!cscPath) {
+      logger.warn("[Clipboard] csc.exe not found – Ctrl+Shift+F auto-paste unavailable");
+      return;
+    }
+    await execAsync(`"${cscPath}" /nologo /target:exe /out:"${exePath}" "${csPath}"`);
+    pasteHelperExe = exePath;
+    logger.info(`[Clipboard] Paste helper compiled successfully: ${exePath}`);
+  } catch (err) {
+    logger.warn("[Clipboard] Failed to compile paste helper:", err.message);
+  }
+}
+
+/**
+ * Simulate Ctrl+V in the currently focused window.
+ * Handles the Shift-key collision from Ctrl+Shift+F via the paste helper EXE.
+ */
+async function simulatePasteKeystroke() {
+  try {
+    if (process.platform === "darwin") {
+      await execAsync(
+        `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
+      );
+    } else if (process.platform === "win32") {
+      if (pasteHelperExe && fs.existsSync(pasteHelperExe)) {
+        await execAsync(`"${pasteHelperExe}"`);
+      } else {
+        logger.warn("[simulatePaste] No paste helper available – user must press Ctrl+V manually");
+      }
+    }
+  } catch (err) {
+    logger.warn("[simulatePaste] Failed:", err.message);
+  }
+}
+
+/**
+ * Simulate Ctrl+C in the currently focused window.
+ * Returns true if the clipboard content changed after the simulation.
+ */
+async function simulateCopyKeystroke() {
+  // Snapshot text, image AND file paths before the simulated Ctrl+C
+  const beforeText  = clipboard.readText();
+  const beforeImage = clipboard.readImage().toDataURL();
+  const beforePaths = JSON.stringify(clipboard.readFilePaths?.() ?? []);
+
+  try {
+    if (process.platform === "darwin") {
+      await execAsync(
+        `osascript -e 'tell application "System Events" to keystroke "c" using command down'`
+      );
+      await new Promise((r) => setTimeout(r, 250));
+    } else if (process.platform === "win32") {
+      if (copyHelperExe && fs.existsSync(copyHelperExe)) {
+        // Compiled C# EXE — starts in ~5ms, correctly handles Shift modifier
+        await execAsync(`"${copyHelperExe}"`);
+        await new Promise((r) => setTimeout(r, 250));
+      } else {
+        // No helper compiled: just wait and read whatever is in clipboard
+        logger.warn("[simulateCopy] No copy helper available – reading current clipboard");
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+  } catch (err) {
+    logger.warn("[simulateCopy] Failed:", err.message);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  const afterText  = clipboard.readText();
+  const afterImage = clipboard.readImage().toDataURL();
+  const afterPaths = JSON.stringify(clipboard.readFilePaths?.() ?? []);
+
+  // Consider changed if text, image bitmap, OR file paths changed
+  const changed = afterText !== beforeText || afterImage !== beforeImage || afterPaths !== beforePaths;
+  logger.info(`[simulateCopy] ${changed ? "CHANGED" : "unchanged"} | text: ${afterText !== beforeText} | image: ${afterImage !== beforeImage} | paths: ${afterPaths !== beforePaths}`);
+  return changed;
+}
+
+/**
+ * Query every open File Explorer window via PowerShell COM Shell.Application
+ * and return the first selected image file path.
+ * This is a reliable fallback for when Ctrl+C simulation doesn't produce
+ * a readable clipboard entry (e.g. CF_HDROP vs CF_BITMAP mismatch).
+ */
+const IMAGE_EXTS_FOR_EXPLORER = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico"];
+
+async function getExplorerSelectedImagePath() {
+  if (process.platform !== "win32") return null;
+  // PowerShell: iterate open Explorer windows, collect selected item paths
+  const psScript = [
+    "$shell = New-Object -ComObject Shell.Application",
+    "$paths = @()",
+    "foreach ($window in $shell.Windows()) {",
+    "  try { $items = $window.Document.SelectedItems()",
+    "  foreach ($item in $items) { $paths += $item.Path } } catch {} }",
+    "$paths -join '|'"
+  ].join("; ");
+  try {
+    const { stdout } = await execAsync(
+      `powershell -NoProfile -NonInteractive -Command "${psScript}"`
+    );
+    const paths = stdout.trim().split("|").filter(Boolean);
+    const imagePath = paths.find((fp) =>
+      IMAGE_EXTS_FOR_EXPLORER.some((ext) => fp.toLowerCase().endsWith(ext))
+    );
+    logger.info(`[getExplorerSelectedImagePath] explorer paths: ${JSON.stringify(paths)} | image: ${imagePath ?? "none"}`);
+    return imagePath ?? null;
+  } catch (err) {
+    logger.warn("[getExplorerSelectedImagePath] PowerShell query failed:", err.message);
+    return null;
+  }
+}
+
 app.whenReady().then(async () => {
-  clipboardService.startPolling();
+  // Compile Windows keystroke helpers (once per machine, non-blocking on failure)
+  await prepareWindowsCopyHelper();
+  await preparePasteHelper();
+
   identityService = new IdentityService(app.getPath("userData"));
   await identityService.load();
   await createWindow();
+
+  // -----------------------------------------------------------------------
+  // Global shortcuts
+  //   Ctrl+Shift+D  →  simulate Ctrl+C in focused app  →  capture & share
+  //   Ctrl+Shift+F  →  inject top shared item → OS clipboard (ready for Ctrl+V)
+  // -----------------------------------------------------------------------
+  const isMac      = process.platform === "darwin";
+  const copyAccel  = isMac ? "Command+Shift+D" : "CommandOrControl+Shift+D";
+  const pasteAccel = isMac ? "Command+Shift+F" : "CommandOrControl+Shift+F";
+
+  globalShortcut.register(copyAccel, async () => {
+    logger.info("[Shortcut] Ctrl+Shift+D fired — starting capture flow");
+
+    // Step 1: Simulate Ctrl+C in the focused app (covers text selections, etc.)
+    await simulateCopyKeystroke();
+
+    // Step 2: Try to capture from clipboard (text, bitmap, or CF_HDROP file paths)
+    let item = clipboardService.captureNow();
+    logger.info(`[Shortcut] captureNow result: ${item ? item.historyId : "null"}`);
+
+    // Step 3: FALLBACK — if nothing captured, directly ask File Explorer
+    //   what files the user has selected, then load the image from disk.
+    //   This handles the CF_HDROP case where Electron's clipboard API
+    //   cannot read CF_HDROP as a native image.
+    if (!item) {
+      logger.info("[Shortcut] captureNow was empty — querying File Explorer selection...");
+      const explorerImagePath = await getExplorerSelectedImagePath();
+      if (explorerImagePath && fs.existsSync(explorerImagePath)) {
+        try {
+          const img = nativeImage.createFromPath(explorerImagePath);
+          if (!img.isEmpty()) {
+            // Write the real bitmap to clipboard so captureNow() can read it normally
+            clipboard.writeImage(img);
+            logger.info(`[Shortcut] Explorer image preloaded to clipboard: ${explorerImagePath}`);
+            item = clipboardService.captureNow();
+          } else {
+            logger.warn(`[Shortcut] nativeImage.createFromPath returned empty for: ${explorerImagePath}`);
+          }
+        } catch (err) {
+          logger.warn("[Shortcut] Failed to load Explorer image:", err.message);
+        }
+      }
+    }
+
+    // Step 4: Notify UI
+    if (mainWindow) {
+      if (item) {
+        mainWindow.webContents.send("clipboard:captured", item);
+        mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
+      } else {
+        mainWindow.webContents.send("clipboard:captured", null);
+      }
+    }
+  });
+
+  globalShortcut.register(pasteAccel, async () => {
+    logger.info("[Shortcut] Ctrl+Shift+F — writing top shared item to OS clipboard");
+
+    // Step 1: Write top history item to OS clipboard as CF_BITMAP
+    const item = clipboardService.pasteTop();
+
+    if (item) {
+      // Step 2 (Windows image only): Also write as real system CF_HDROP via PowerShell.
+      //   Electron's clipboard.writeBuffer("CF_HDROP") writes a CUSTOM registered format
+      //   (not system CF_HDROP ID=15) that File Explorer does NOT understand.
+      //   PowerShell's Clipboard.SetFileDropList() correctly writes system CF_HDROP.
+      if (item.image && process.platform === "win32") {
+        try {
+          const tmpImg = nativeImage.createFromDataURL(item.image);
+          if (!tmpImg.isEmpty()) {
+            const tmpFile = path.join(os.tmpdir(), `lansync-paste-${Date.now()}.png`);
+            fs.writeFileSync(tmpFile, tmpImg.toPNG());
+            // -STA flag required: clipboard COM APIs need Single-Threaded Apartment
+            const psCmd = [
+              "Add-Type -AssemblyName System.Windows.Forms",
+              "$f = New-Object System.Collections.Specialized.StringCollection",
+              `[void]$f.Add('${tmpFile.replace(/\\/g, "\\\\").replace(/'/g, "''")}')`,
+              "[System.Windows.Forms.Clipboard]::SetFileDropList($f)"
+            ].join("; ");
+            await execAsync(`powershell -STA -NoProfile -NonInteractive -Command "${psCmd}"`);
+            logger.info(`[Shortcut] CF_HDROP written via PowerShell: ${tmpFile}`);
+          }
+        } catch (hdropErr) {
+          // Non-fatal: CF_BITMAP is still usable in apps that accept inline image paste
+          logger.warn("[Shortcut] CF_HDROP PowerShell write failed:", hdropErr.message);
+        }
+      }
+
+      // Step 3: Simulate Ctrl+V in the focused app
+      await simulatePasteKeystroke();
+      logger.info(`[Shortcut] Ctrl+Shift+F — auto-pasted item ${item.historyId}`);
+    } else {
+      logger.info("[Shortcut] Ctrl+Shift+F — history is empty, nothing to paste");
+    }
+
+    if (mainWindow) {
+      mainWindow.webContents.send("clipboard:update", clipboardService.getHistory());
+      mainWindow.webContents.send("clipboard:pasted", item ?? null);
+    }
+  });
+
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
@@ -471,6 +895,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  globalShortcut.unregisterAll();
   if (process.platform !== "darwin") {
     for (const wsId of Array.from(workspaceWatchers.keys())) teardownWorkspaceWatcher(wsId);
     transportService.stopServer();
@@ -543,7 +968,6 @@ ipcMain.handle("workspace:create", async (_event, payload) => {
 
     ensureServerStarted();
     setupWorkspaceWatcher(workspaceId, rootPath);
-    clipboardService.startPolling();
 
     discovery.advertiseWorkspace({
       workspaceName: proposedName,

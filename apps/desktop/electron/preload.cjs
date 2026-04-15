@@ -74,5 +74,15 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on("clipboard:update", handler);
     return () => ipcRenderer.removeListener("clipboard:update", handler);
+  },
+  onClipboardCaptured: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("clipboard:captured", handler);
+    return () => ipcRenderer.removeListener("clipboard:captured", handler);
+  },
+  onClipboardPasted: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("clipboard:pasted", handler);
+    return () => ipcRenderer.removeListener("clipboard:pasted", handler);
   }
 });

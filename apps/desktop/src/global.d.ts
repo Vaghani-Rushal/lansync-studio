@@ -75,6 +75,8 @@ declare global {
       onHostedWorkspaces(listener: Listener<HostedWorkspace[]>): () => void;
       onPendingJoins(listener: Listener<PendingJoin[]>): () => void;
       onClipboardUpdate(listener: Listener<Array<{ historyId: string; text?: string; image?: string; timestamp: number }>>): () => void;
+      onClipboardCaptured(listener: Listener<{ historyId: string; text?: string; image?: string; timestamp: number }>): () => void;
+      onClipboardPasted(listener: Listener<{ historyId: string; text?: string; image?: string; timestamp: number }>): () => void;
     };
   }
 }
