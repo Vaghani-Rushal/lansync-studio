@@ -198,5 +198,7 @@ export const clipboardSyncSchema = z.object({
   text: z.string().optional(),
   image: z.string().optional(),
   timestamp: z.number(),
-  sessionToken: z.string().min(16).optional()
+  sessionToken: z.string().min(16).optional(),
+  sourceUserId: z.string().uuid().optional(),
+  sourceDisplayName: z.string().min(1).max(64).optional()
 });

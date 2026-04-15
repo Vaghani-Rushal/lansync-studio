@@ -24,6 +24,10 @@ export class DiscoveryService {
     /** @type {Map<string, any>} workspaceId -> DiscoveryWorkspace */
     this.workspaces = new Map();
     this.pruneInterval = null;
+    this.clipboardAdvertisement = null;
+    this.clipboardBrowser = null;
+    this.clipboardPeers = new Map();
+    this.clipboardPruneInterval = null;
   }
 
   advertiseWorkspace({ workspaceName, hostName, workspaceId, sessionCode, port }) {
@@ -116,9 +120,83 @@ export class DiscoveryService {
     this.workspaces.clear();
   }
 
+  advertiseClipboardPeer({ peerId, hostName, port }) {
+    this.stopAdvertisingClipboardPeer();
+    this.clipboardAdvertisement = this.bonjour.publish({
+      name: `${hostName} / clipboard / ${peerId.slice(0, 8)}`,
+      type: "pcclip",
+      protocol: "tcp",
+      port,
+      txt: {
+        peerId,
+        hostName,
+        appVersion: "0.1.0",
+        mode: "clipboard_peer"
+      }
+    });
+    return peerId;
+  }
+
+  stopAdvertisingClipboardPeer() {
+    if (!this.clipboardAdvertisement) return;
+    try {
+      this.clipboardAdvertisement.stop();
+    } catch {
+      /* no-op */
+    }
+    this.clipboardAdvertisement = null;
+  }
+
+  startBrowsingClipboardPeers(onChange) {
+    this.clipboardBrowser?.stop();
+    this.clipboardBrowser = this.bonjour.find({ type: "pcclip", protocol: "tcp" });
+
+    this.clipboardBrowser.on("up", (service) => {
+      const peerId = service?.txt?.peerId ?? service.fqdn;
+      this.clipboardPeers.set(peerId, {
+        peerId,
+        hostName: service?.txt?.hostName ?? service.host,
+        hostAddress: service.referer?.address || service.addresses?.[0] || "0.0.0.0",
+        port: service.port,
+        lastSeenAt: Date.now()
+      });
+      onChange(Array.from(this.clipboardPeers.values()));
+    });
+
+    this.clipboardBrowser.on("down", (service) => {
+      const peerId = service?.txt?.peerId ?? service.fqdn;
+      this.clipboardPeers.delete(peerId);
+      onChange(Array.from(this.clipboardPeers.values()));
+    });
+
+    this.clipboardPruneInterval = setInterval(() => {
+      const next = new Map();
+      const now = Date.now();
+      for (const [id, peer] of this.clipboardPeers.entries()) {
+        if (now - peer.lastSeenAt <= 20_000) next.set(id, peer);
+      }
+      if (next.size !== this.clipboardPeers.size) {
+        this.clipboardPeers = next;
+        onChange(Array.from(this.clipboardPeers.values()));
+      }
+    }, 10_000);
+  }
+
+  stopBrowsingClipboardPeers() {
+    this.clipboardBrowser?.stop();
+    this.clipboardBrowser = null;
+    if (this.clipboardPruneInterval) {
+      clearInterval(this.clipboardPruneInterval);
+      this.clipboardPruneInterval = null;
+    }
+    this.clipboardPeers.clear();
+  }
+
   destroy() {
     this.stopAdvertising();
+    this.stopAdvertisingClipboardPeer();
     this.stopBrowsing();
+    this.stopBrowsingClipboardPeers();
     this.bonjour.destroy();
   }
 }

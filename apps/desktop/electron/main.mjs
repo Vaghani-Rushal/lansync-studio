@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 const execAsync = promisify(exec);
 import chokidar from "chokidar";
+import { WebSocket } from "ws";
 import {
   crdtInitSchema,
   crdtSyncRequestSchema,
@@ -42,6 +43,12 @@ const crdtService = new CrdtService(workspaceService);
 const clipboardService = new ClipboardService();
 
 clipboardService.on("manual-clipboard-capture", (item) => {
+  const identity = identityService?.get();
+  if (identity && !item.sourceDisplayName) {
+    item.sourceUserId = identity.userId;
+    item.sourceDisplayName = identity.displayName;
+  }
+
   // Broadcast to all clients if we are the Host
   for (const ws of workspaceService.listWorkspaces()) {
     transportService.broadcastToWorkspace(ws.workspaceId, "CLIPBOARD_SYNC", randomUUID(), item);
@@ -51,6 +58,22 @@ clipboardService.on("manual-clipboard-capture", (item) => {
     transportService.send(transportService.client, "CLIPBOARD_SYNC", randomUUID(), {
       ...item,
       sessionToken: activeSessionToken
+    });
+  }
+  // Broadcast to discovered clipboard peers on LAN/Wi-Fi (no workspace join required)
+  for (const peer of discoveredClipboardPeers) {
+    if (identity && peer.peerId === identity.userId) continue;
+    const socket = new WebSocket(`ws://${peer.hostAddress}:${peer.port}`);
+    socket.on("open", () => {
+      transportService.send(socket, "CLIPBOARD_SYNC", randomUUID(), item);
+      socket.close();
+    });
+    socket.on("error", () => {
+      try {
+        socket.close();
+      } catch {
+        /* no-op */
+      }
     });
   }
   // Refresh all clipboard-aware windows
@@ -91,6 +114,8 @@ let serverStarted = false;
 let lastJoinedWorkspace = null;
 let activeSessionToken = null;
 let activeJoinedWorkspaceId = null;
+/** @type {Array<{peerId:string,hostName:string,hostAddress:string,port:number}>} */
+let discoveredClipboardPeers = [];
 
 // Per-workspace watcher state
 /** @type {Map<string, { watcher: import("chokidar").FSWatcher, timers: Map<string, NodeJS.Timeout> }>} */
@@ -935,6 +960,19 @@ app.whenReady().then(async () => {
 
   identityService = new IdentityService(app.getPath("userData"));
   await identityService.load();
+  ensureServerStarted();
+  const identity = identityService.get();
+  if (identity) {
+    discovery.advertiseClipboardPeer({
+      peerId: identity.userId,
+      hostName: identity.displayName,
+      port: SHARED_PORT
+    });
+  }
+  discovery.startBrowsingClipboardPeers((peers) => {
+    const selfId = identityService?.get()?.userId;
+    discoveredClipboardPeers = peers.filter((p) => p.peerId !== selfId);
+  });
   await createWindow();
   await createClipboardWindow();
   // Always watch local OS clipboard in RAM and auto-share across active sessions.
@@ -1116,6 +1154,12 @@ ipcMain.handle("identity:set", async (_event, payload) => {
     const rawName = payload?.displayName;
     const validated = displayNameSchema.parse(rawName);
     const identity = await identityService.set(validated);
+    ensureServerStarted();
+    discovery.advertiseClipboardPeer({
+      peerId: identity.userId,
+      hostName: identity.displayName,
+      port: SHARED_PORT
+    });
     return { ok: true, identity };
   } catch (error) {
     return {

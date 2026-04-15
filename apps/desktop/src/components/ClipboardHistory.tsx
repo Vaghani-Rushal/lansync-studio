@@ -5,6 +5,7 @@ type ClipboardItem = {
   text?: string;
   image?: string;
   timestamp: number;
+  sourceDisplayName?: string;
 };
 
 type Toast = { id: string; message: string; type: "copied" | "pasted" | "warning" };
@@ -116,6 +117,7 @@ export function ClipboardHistory({
                 minute: "2-digit",
               })}
             </span>
+            <span>{item.sourceDisplayName ? `By ${item.sourceDisplayName}` : "By You"}</span>
             <span title="Click to paste">⎘</span>
           </div>
           {item.image && (

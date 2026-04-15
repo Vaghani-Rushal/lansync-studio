@@ -60,7 +60,7 @@ function extractMacFileUrls(raw) {
 export class ClipboardService extends EventEmitter {
   constructor() {
     super();
-    /** @type {Array<{historyId:string,text:string,image:string,timestamp:number}>} */
+    /** @type {Array<{historyId:string,text:string,image:string,timestamp:number,sourceUserId?:string,sourceDisplayName?:string}>} */
     this.history = [];
     // Track the last item we wrote TO the OS clipboard ourselves
     // so that if the user later presses Ctrl+Shift+D we don't re-broadcast it.
@@ -148,7 +148,9 @@ export class ClipboardService extends EventEmitter {
       historyId: randomUUID(),
       text: selectedText,
       image: selectedImage,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      sourceUserId: options.sourceUserId,
+      sourceDisplayName: options.sourceDisplayName
     };
 
     this._addToHistory(item);
@@ -190,7 +192,9 @@ export class ClipboardService extends EventEmitter {
       historyId: payload.historyId,
       text: payload.text || "",
       image: payload.image || "",
-      timestamp: payload.timestamp
+      timestamp: payload.timestamp,
+      sourceUserId: payload.sourceUserId,
+      sourceDisplayName: payload.sourceDisplayName
     };
 
     this._addToHistory(item);
