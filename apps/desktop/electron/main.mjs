@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage, screen } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, globalShortcut, clipboard, nativeImage, screen, Menu } from "electron";
 import path from "node:path";
 import { promises as fsPromises } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -1114,6 +1114,8 @@ async function getExplorerSelectedImagePath() {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
+
   // Compile Windows keystroke helpers (once per machine, non-blocking on failure)
   await prepareWindowsCopyHelper();
   await preparePasteHelper();
