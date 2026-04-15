@@ -7,6 +7,7 @@ import { JoinScreen } from "./screens/JoinScreen";
 import { ShareScreen } from "./screens/ShareScreen";
 import { ViewerScreen } from "./screens/ViewerScreen";
 import { NameSetupScreen } from "./screens/NameSetupScreen";
+import { ClipboardHistory } from "./components/ClipboardHistory";
 import { DocxStructuralEditError, patchDocxText } from "./utils/docxPatcher";
 import { arrayBufferToBase64 } from "./utils/base64";
 
@@ -410,6 +411,7 @@ function App() {
         />
       ) : null}
 
+      <ClipboardHistory bridgeReady={bridgeReady} />
     </main>
   );
 }

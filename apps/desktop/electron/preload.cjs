@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
   reconnectClient: () => ipcRenderer.invoke("client:reconnect"),
   getClientSessionState: () => ipcRenderer.invoke("client:get-session-state"),
 
+  // Clipboard
+  getClipboardHistory: () => ipcRenderer.invoke("clipboard:get-history"),
+  writeClipboardItem: (payload) => ipcRenderer.invoke("clipboard:write", payload),
+
   // Event listeners
   onWorkspaces: (listener) => {
     const handler = (_event, payload) => listener(payload);
@@ -65,5 +69,20 @@ contextBridge.exposeInMainWorld("pcConnectorApi", {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on("host:pending-joins", handler);
     return () => ipcRenderer.removeListener("host:pending-joins", handler);
+  },
+  onClipboardUpdate: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("clipboard:update", handler);
+    return () => ipcRenderer.removeListener("clipboard:update", handler);
+  },
+  onClipboardCaptured: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("clipboard:captured", handler);
+    return () => ipcRenderer.removeListener("clipboard:captured", handler);
+  },
+  onClipboardPasted: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("clipboard:pasted", handler);
+    return () => ipcRenderer.removeListener("clipboard:pasted", handler);
   }
 });
