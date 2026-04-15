@@ -1,10 +1,11 @@
 import type { FileTreeNode } from "@pcconnector/shared-types";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CodeEditor } from "../components/viewers/CodeEditor";
 import { ImageViewer } from "../components/viewers/ImageViewer";
 import { PDFViewer } from "../components/viewers/PDFViewer";
 import type { StreamMeta } from "../state/lanShareStore";
 import { getViewerKind } from "../utils/viewerRouter";
+import { DocxStructuralEditError } from "../utils/docxPatcher";
 
 type InternalNode = {
   id: string;
@@ -37,6 +38,7 @@ type Props = {
   onOpenFile: (node: FileTreeNode) => Promise<void>;
   onEditorChange: (value: string) => void;
   onSave: () => Promise<void>;
+  onSaveDocx: (html: string) => Promise<void>;
 };
 
 const getFileIcon = (name: string, isDirectory: boolean, expanded?: boolean) => {
@@ -86,10 +88,21 @@ export const ViewerScreen = ({
   onDisconnect,
   onOpenFile,
   onEditorChange,
-  onSave
+  onSave,
+  onSaveDocx
 }: Props) => {
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
+  const [docxEditedHtml, setDocxEditedHtml] = useState<string | null>(null);
+  const [docxDirty, setDocxDirty] = useState(false);
+  const [docxStructuralError, setDocxStructuralError] = useState<null | { orig: number; edited: number }>(null);
+  const docxEditorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setDocxEditedHtml(null);
+    setDocxDirty(false);
+    setDocxStructuralError(null);
+  }, [selectedFile]);
   const mime = selectedMimeType ?? "application/octet-stream";
   const viewerKind = getViewerKind(mime, selectedFile);
   const isText = viewerKind === "code";
@@ -313,15 +326,93 @@ export const ViewerScreen = ({
                 {isPdf ? <PDFViewer data={previewBuffer} /> : null}
                 {isVideo && previewUrl ? <video className="preview-video" controls src={previewUrl}></video> : null}
                 {isAudio && previewUrl ? <audio className="preview-audio" controls src={previewUrl}></audio> : null}
-                {isDocx ? <p className="muted">Word documents are preview-only in current build (editing disabled).</p> : null}
-                {isDocx && docxPreview?.status === "loading" ? <p className="muted">Rendering Word document...</p> : null}
-                {isDocx && docxPreview?.status === "error" ? (
-                  <div className="info-card">
-                    <p>Could not preview this document.</p>
-                    <p className="muted">{docxPreview.message}</p>
+                {isDocx ? (
+                  <div className="docx-wrap">
+                    <div className="docx-notice info-card">
+                      <strong>In-session edit mode</strong>
+                      <span className="muted">
+                        You can edit the text of existing paragraphs and save back to the original .docx. Adding or removing paragraphs, changing formatting, and inserting images are not saved.
+                      </span>
+                    </div>
+                    {docxPreview?.status === "loading" ? (
+                      <div className="docx-state muted">Rendering Word document...</div>
+                    ) : null}
+                    {docxPreview?.status === "error" ? (
+                      <div className="info-card">
+                        <p>Could not preview this document.</p>
+                        <p className="muted">{docxPreview.message}</p>
+                      </div>
+                    ) : null}
+                    {docxPreview?.status === "ready" ? (
+                      <>
+                        <div className="docx-edit-actions">
+                          <span className={`status-pill ${docxDirty ? "" : "ok"}`}>
+                            {editorReadOnly ? "View only mode" : docxDirty ? "● Unsaved changes" : "✓ Saved"}
+                          </span>
+                          <button
+                            className="primary-btn"
+                            disabled={!docxDirty || isSaving || editorReadOnly}
+                            onClick={async () => {
+                              if (!docxEditedHtml) return;
+                              try {
+                                await onSaveDocx(docxEditedHtml);
+                                setDocxDirty(false);
+                              } catch (err) {
+                                if (err instanceof DocxStructuralEditError) {
+                                  setDocxStructuralError({
+                                    orig: err.originalParagraphs,
+                                    edited: err.editedParagraphs
+                                  });
+                                }
+                              }
+                            }}
+                          >
+                            {isSaving ? "Saving..." : "Save to .docx"}
+                          </button>
+                        </div>
+                        <div
+                          ref={docxEditorRef}
+                          className="docx-preview"
+                          contentEditable={!editorReadOnly}
+                          suppressContentEditableWarning
+                          spellCheck
+                          dangerouslySetInnerHTML={{ __html: docxPreview.html }}
+                          onInput={(e) => {
+                            setDocxEditedHtml((e.currentTarget as HTMLDivElement).innerHTML);
+                            setDocxDirty(true);
+                          }}
+                        />
+                        {docxStructuralError ? (
+                          <div className="info-card docx-structural-error">
+                            <p>
+                              Structural edits aren't supported. Original has {docxStructuralError.orig} paragraph
+                              {docxStructuralError.orig === 1 ? "" : "s"}, your edit has {docxStructuralError.edited}.
+                              Only text edits within existing paragraphs can be saved.
+                            </p>
+                            <div className="modal-actions">
+                              <button className="ghost-btn" onClick={() => setDocxStructuralError(null)}>
+                                Keep editing
+                              </button>
+                              <button
+                                className="danger-btn"
+                                onClick={() => {
+                                  if (docxEditorRef.current && docxPreview?.status === "ready") {
+                                    docxEditorRef.current.innerHTML = docxPreview.html;
+                                  }
+                                  setDocxEditedHtml(null);
+                                  setDocxDirty(false);
+                                  setDocxStructuralError(null);
+                                }}
+                              >
+                                Discard edits
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
-                {isDocx && docxPreview?.status === "ready" ? <div className="docx-preview" dangerouslySetInnerHTML={{ __html: docxPreview.html }} /> : null}
                 {isText ? (
                   <div className="editor-wrap">
                     <div className="editor-actions">

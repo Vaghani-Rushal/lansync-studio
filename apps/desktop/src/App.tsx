@@ -7,6 +7,8 @@ import { JoinScreen } from "./screens/JoinScreen";
 import { ShareScreen } from "./screens/ShareScreen";
 import { ViewerScreen } from "./screens/ViewerScreen";
 import { NameSetupScreen } from "./screens/NameSetupScreen";
+import { DocxStructuralEditError, patchDocxText } from "./utils/docxPatcher";
+import { arrayBufferToBase64 } from "./utils/base64";
 
 import { useLanShareStore } from "./state/lanShareStore";
 
@@ -41,6 +43,8 @@ function App() {
   const previewUrl = useLanShareStore((s) => s.previewUrl);
   const previewBuffer = useLanShareStore((s) => s.previewBuffer);
   const docxPreview = useLanShareStore((s) => s.docxPreview);
+  const docxOriginalBuffer = useLanShareStore((s) => s.docxOriginalBuffer);
+  const docxReferenceHtml = useLanShareStore((s) => s.docxReferenceHtml);
   const isDiscovering = useLanShareStore((s) => s.isDiscovering);
   const streamState = useLanShareStore((s) => s.streamState);
   const streamMeta = useLanShareStore((s) => s.streamMeta);
@@ -227,6 +231,33 @@ function App() {
     setIsSaving(false);
   };
 
+  const handleSaveDocx = async (editedHtml: string) => {
+    if (!api || !selectedFile) return;
+    if (!docxOriginalBuffer || !docxReferenceHtml) {
+      setErrorBanner("Original document is unavailable. Reopen the file and try again.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const patched = await patchDocxText(docxOriginalBuffer, docxReferenceHtml, editedHtml);
+      const base64 = arrayBufferToBase64(patched);
+      const response = await api.saveFile({
+        relativePath: selectedFile,
+        content: base64,
+        encoding: "base64",
+        isBinary: true
+      });
+      if (!response.ok) setErrorBanner(response.error ?? "Save failed");
+    } catch (err) {
+      if (err instanceof DocxStructuralEditError) {
+        throw err;
+      }
+      setErrorBanner(err instanceof Error ? err.message : "Failed to patch .docx");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!api) return;
     await api.disconnectClient();
@@ -380,6 +411,7 @@ function App() {
           onOpenFile={handleOpenFile}
           onEditorChange={(value) => applyEditorChange(value)}
           onSave={handleSave}
+          onSaveDocx={handleSaveDocx}
         />
       ) : null}
 

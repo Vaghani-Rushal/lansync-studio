@@ -3,6 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { AppError } from "./errors.mjs";
 
+const BINARY_WRITE_EXTENSIONS = new Set([".docx"]);
+
 const textExtensions = new Set([
   // Plain / docs
   ".txt", ".md", ".markdown", ".rst", ".adoc", ".log", ".csv", ".tsv",
@@ -243,6 +245,42 @@ export class WorkspaceService {
       });
     }
     await fs.writeFile(fullPath, content, "utf8");
+    return { ok: true };
+  }
+
+  async writeBinaryFile(workspaceId, relativePath, buffer) {
+    const fullPath = this.ensureInWorkspace(workspaceId, relativePath);
+    const ext = path.extname(relativePath).toLowerCase();
+    if (!BINARY_WRITE_EXTENSIONS.has(ext)) {
+      throw new AppError(
+        "UNSUPPORTED_EDIT_TYPE",
+        `Binary write not allowed for ${ext || "this file type"}`,
+        false,
+        "filesystem",
+        { relativePath }
+      );
+    }
+    if (!Buffer.isBuffer(buffer)) {
+      throw new AppError(
+        "INVALID_PAYLOAD",
+        "writeBinaryFile expected a Buffer",
+        false,
+        "filesystem",
+        { relativePath }
+      );
+    }
+    const tmpPath = `${fullPath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      await fs.writeFile(tmpPath, buffer);
+      await fs.rename(tmpPath, fullPath);
+    } catch (err) {
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        // best-effort cleanup
+      }
+      throw err;
+    }
     return { ok: true };
   }
 

@@ -301,7 +301,19 @@ const onWireMessage = async (socket, message) => {
       sendError(socket, message.correlationId, "PERMISSION_DENIED", "You have view-only access to this workspace");
       return;
     }
-    await workspaceService.writeTextFile(client.workspaceId, parsed.data.relativePath, parsed.data.content);
+    try {
+      if (parsed.data.encoding === "base64") {
+        const buf = Buffer.from(parsed.data.content, "base64");
+        await workspaceService.writeBinaryFile(client.workspaceId, parsed.data.relativePath, buf);
+      } else {
+        await workspaceService.writeTextFile(client.workspaceId, parsed.data.relativePath, parsed.data.content);
+      }
+    } catch (err) {
+      const code = err?.code ?? "SAVE_FAILED";
+      const msg = err?.message ?? "Save failed";
+      sendError(socket, message.correlationId, code, msg);
+      return;
+    }
     transportService.send(socket, "SAVE_ACK", message.correlationId, {
       relativePath: parsed.data.relativePath
     });
@@ -936,7 +948,8 @@ ipcMain.handle("client:save-file", async (_event, payload) => {
     sessionToken: activeSessionToken,
     relativePath: payload.relativePath,
     content: payload.content,
-    encoding: "utf8"
+    encoding: payload.encoding ?? "utf8",
+    isBinary: payload.isBinary ?? false
   });
   return { ok: true, correlationId };
 });
