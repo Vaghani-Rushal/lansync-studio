@@ -1501,13 +1501,13 @@ select:focus {
   user-select: none;
 }
 
-/* Title bar — draggable, matches app .topbar feel */
+/* ── Title bar ─────────────────────────────────────────────── */
 .clipboard-window-titlebar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding: var(--space-5) var(--space-8);
+  padding: var(--space-5) var(--space-6);
   background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-sm);
@@ -1518,76 +1518,128 @@ select:focus {
 .clipboard-window-title {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.2px;
   color: var(--color-text-primary);
   flex: 1;
+  min-width: 0;
 }
 
 .clipboard-window-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   -webkit-app-region: no-drag;
+  flex-shrink: 0;
 }
 
-/* Shortcuts bar */
+/* Quit button — subtle danger, no filled background */
+.clipboard-quit-btn {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.3px;
+  color: var(--color-accent-red);
+  background: rgba(255, 99, 99, 0.06);
+  border: 1px solid rgba(255, 99, 99, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 3px var(--space-5);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.clipboard-quit-btn:hover {
+  background: rgba(255, 99, 99, 0.12);
+  border-color: rgba(255, 99, 99, 0.45);
+}
+
+/* Close (×) button — minimal icon button */
+.clipboard-close-btn {
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.clipboard-close-btn:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--color-border-subtle);
+}
+
+/* ── Shortcuts bar — always one row, equal-width badges ─────── */
 .clipboard-shortcuts-bar {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-8);
+  align-items: stretch;
+  padding: var(--space-3) var(--space-6);
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-elevated);
-  flex-wrap: wrap;
+  gap: var(--space-3);
   flex-shrink: 0;
 }
 
 .clipboard-shortcut-badge {
-  display: inline-flex;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--color-accent-blue);
-  background: hsla(202, 100%, 67%, 0.08);
-  border: 1px solid hsla(202, 100%, 67%, 0.2);
+  justify-content: center;
+  gap: 2px;
+  background: hsla(202, 100%, 67%, 0.06);
+  border: 1px solid hsla(202, 100%, 67%, 0.15);
   border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-4);
-  letter-spacing: 0.2px;
+  padding: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.clipboard-shortcut-key {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-accent-blue);
+  letter-spacing: 0.3px;
   white-space: nowrap;
 }
 
-.clipboard-shortcut-badge strong {
-  font-weight: 700;
+.clipboard-shortcut-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.2px;
 }
 
-/* Scrollable history list */
+/* ── Scrollable history list ────────────────────────────────── */
 .clipboard-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-6) var(--space-6);
+  padding: var(--space-5) var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
-.clipboard-content::-webkit-scrollbar {
-  width: 4px;
-}
-
-.clipboard-content::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+.clipboard-content::-webkit-scrollbar { width: 4px; }
+.clipboard-content::-webkit-scrollbar-track { background: transparent; }
 .clipboard-content::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
   border-radius: var(--radius-pill);
 }
 
-/* Empty state */
+/* ── Empty state ────────────────────────────────────────────── */
 .clipboard-empty {
   flex: 1;
   display: flex;
@@ -1603,7 +1655,7 @@ select:focus {
 
 .clipboard-empty-icon {
   font-size: 28px;
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .clipboard-empty p {
@@ -1615,7 +1667,7 @@ select:focus {
   color: var(--color-accent-blue);
 }
 
-/* History item cards */
+/* ── History item cards ─────────────────────────────────────── */
 .clipboard-item {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-subtle);
@@ -1631,8 +1683,8 @@ select:focus {
 
 .clipboard-item:hover {
   background: var(--color-bg-surface);
-  border-color: hsla(202, 100%, 67%, 0.3);
-  box-shadow: 0 0 0 1px hsla(202, 100%, 67%, 0.1);
+  border-color: hsla(202, 100%, 67%, 0.28);
+  box-shadow: 0 0 0 1px hsla(202, 100%, 67%, 0.08);
 }
 
 .clipboard-item-meta {
@@ -1654,7 +1706,7 @@ select:focus {
 
 .clipboard-item-paste-icon {
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 13px;
   transition: color var(--dur-fast) var(--ease);
 }
 
@@ -1694,11 +1746,11 @@ select:focus {
   border-radius: var(--radius-xs);
 }
 
-/* Toasts */
+/* ── Toast notifications ────────────────────────────────────── */
 .clipboard-toasts {
   position: absolute;
-  top: var(--space-16);
-  right: var(--space-6);
+  top: 80px;
+  right: var(--space-5);
   z-index: 99999;
   display: flex;
   flex-direction: column;

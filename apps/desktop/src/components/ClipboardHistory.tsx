@@ -149,10 +149,10 @@ export function ClipboardHistory({
             📋 Shared Clipboard
           </span>
           <div className="clipboard-window-actions">
-            <button className="danger-btn" onClick={handleQuit} title="Quit app">
+            <button className="clipboard-quit-btn" onClick={handleQuit} title="Quit app">
               Quit
             </button>
-            <button className="ghost-btn" onClick={handleClose} title="Hide window">
+            <button className="clipboard-close-btn" onClick={handleClose} title="Hide window">
               ✕
             </button>
           </div>
@@ -160,13 +160,16 @@ export function ClipboardHistory({
 
         <div className="clipboard-shortcuts-bar">
           <span className="clipboard-shortcut-badge">
-            <strong>{COPY_SHORTCUT}</strong> Copy
+            <span className="clipboard-shortcut-key">{COPY_SHORTCUT}</span>
+            <span className="clipboard-shortcut-label">Copy</span>
           </span>
           <span className="clipboard-shortcut-badge">
-            <strong>{PASTE_SHORTCUT}</strong> Paste
+            <span className="clipboard-shortcut-key">{PASTE_SHORTCUT}</span>
+            <span className="clipboard-shortcut-label">Paste</span>
           </span>
           <span className="clipboard-shortcut-badge">
-            <strong>{TOGGLE_SHORTCUT}</strong> Toggle
+            <span className="clipboard-shortcut-key">{TOGGLE_SHORTCUT}</span>
+            <span className="clipboard-shortcut-label">Toggle</span>
           </span>
         </div>
 

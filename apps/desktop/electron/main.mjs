@@ -1307,6 +1307,7 @@ ipcMain.handle("clipboard-window:hide", () => {
   }
 });
 
+
 ipcMain.handle("app:quit", () => {
   isQuitting = true;
   cleanupRuntimeResources();
