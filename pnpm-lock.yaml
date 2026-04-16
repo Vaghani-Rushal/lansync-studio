@@ -28,9 +28,6 @@ importers:
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0
-      electron:
-        specifier: ^41.2.0
-        version: 41.2.0
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -95,6 +92,9 @@ importers:
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
+      electron:
+        specifier: ^41.2.0
+        version: 41.2.0
       electron-builder:
         specifier: ^26.8.1
         version: 26.8.1(electron-builder-squirrel-windows@26.8.1)
