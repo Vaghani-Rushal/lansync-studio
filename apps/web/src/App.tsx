@@ -291,9 +291,21 @@ function App() {
             </div>
             <div className="download-stack">
               {visibleDownloads.map((download) => (
-                <a className="download-row" key={download.title} href={download.href}>
-                  <span>{download.title}</span>
-                  <small>{download.meta}</small>
+                <a className="download-btn-large" key={download.title} href={download.href}>
+                  <div className="download-btn-icon">
+                    {download.platform === 'mac' ? (
+                       <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.641-.026 2.669-1.48 3.655-2.922 1.144-1.676 1.616-3.299 1.642-3.385-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.569 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.693.793-1.365 2.247-1.183 3.614 1.341.104 2.636-.585 3.47-1.602z"/></svg>
+                    ) : (
+                       <svg width="24" height="24" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 12.4023L35.2 7.42773V41.8008H0V12.4023ZM39.6 6.80469L88 0V41.8008H39.6V6.80469ZM0 46.2051H35.2V80.5781L0 75.6035V46.2051ZM39.6 46.2051H88V88L39.6 81.1953V46.2051Z" fill="currentColor"/></svg>
+                    )}
+                  </div>
+                  <div className="download-btn-content">
+                    <span className="download-btn-title">{download.title}</span>
+                    <span className="download-btn-meta">{download.meta}</span>
+                  </div>
+                  <div className="download-btn-arrow">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                  </div>
                 </a>
               ))}
             </div>
