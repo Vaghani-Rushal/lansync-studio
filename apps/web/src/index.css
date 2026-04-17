@@ -1,0 +1,189 @@
+:root {
+  --bg: #edf4ff;
+  --bg-secondary: #f8fbff;
+  --ink: #111827;
+  --muted: #58657d;
+  --muted-strong: #37465f;
+  --accent: #2352c8;
+  --border: rgba(17, 34, 68, 0.08);
+  --grid-line: rgba(255, 255, 255, 0.25);
+  --focus-ring: rgba(35, 82, 200, 0.28);
+  --glass-bg: rgba(251, 252, 255, 0.82);
+  --surface-1: rgba(255, 255, 255, 0.55);
+  --surface-2: rgba(255, 255, 255, 0.64);
+  --surface-3: rgba(255, 255, 255, 0.76);
+  --surface-strong: rgba(255, 255, 255, 0.78);
+  --surface-hover: rgba(255, 255, 255, 0.96);
+  --hero-border: rgba(17, 33, 73, 0.08);
+  --hero-bg:
+    radial-gradient(
+      circle at top left,
+      rgba(93, 179, 255, 0.38),
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 80% 20%,
+      rgba(167, 223, 255, 0.58),
+      transparent 22%
+    ),
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.92),
+      rgba(242, 247, 255, 0.88)
+    );
+  --hero-orb: rgba(14, 61, 144, 0.12);
+  --shadow-soft:
+    0 0 0 1px rgba(14, 28, 58, 0.03), 0 18px 38px rgba(33, 55, 104, 0.08);
+  --shadow-card:
+    0 0 0 1px rgba(14, 28, 58, 0.05), 0 14px 30px rgba(33, 55, 104, 0.12);
+  --shadow-hover:
+    0 0 0 1px rgba(14, 28, 58, 0.06), 0 18px 38px rgba(18, 42, 92, 0.16);
+  --font-sans:
+    "Inter", "SF Pro Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
+  color: var(--ink);
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(174, 220, 255, 0.78),
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 82% 10%,
+      rgba(132, 167, 255, 0.18),
+      transparent 18%
+    ),
+    linear-gradient(180deg, #f8fbff 0%, var(--bg) 50%, var(--bg-secondary) 100%);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme="dark"] {
+  --bg: #060c16;
+  --bg-secondary: #0a1324;
+  --ink: #f2f6ff;
+  --muted: #97a7c4;
+  --muted-strong: #c1d0ea;
+  --accent: #8bb8ff;
+  --border: rgba(174, 201, 255, 0.12);
+  --grid-line: rgba(123, 152, 214, 0.12);
+  --focus-ring: rgba(139, 184, 255, 0.35);
+  --glass-bg: rgba(10, 17, 31, 0.74);
+  --surface-1: rgba(12, 20, 36, 0.6);
+  --surface-2: rgba(11, 19, 35, 0.76);
+  --surface-3: rgba(10, 18, 33, 0.88);
+  --surface-strong: rgba(10, 18, 33, 0.9);
+  --surface-hover: rgba(22, 35, 62, 0.96);
+  --hero-border: rgba(167, 200, 255, 0.12);
+  --hero-bg:
+    radial-gradient(
+      circle at top left,
+      rgba(47, 122, 255, 0.28),
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 80% 20%,
+      rgba(87, 169, 255, 0.18),
+      transparent 22%
+    ),
+    linear-gradient(160deg, rgba(7, 12, 22, 0.96), rgba(10, 18, 34, 0.94));
+  --hero-orb: rgba(88, 144, 255, 0.18);
+  --shadow-soft:
+    0 0 0 1px rgba(123, 152, 214, 0.06), 0 18px 38px rgba(0, 0, 0, 0.32);
+  --shadow-card:
+    0 0 0 1px rgba(123, 152, 214, 0.08), 0 14px 30px rgba(0, 0, 0, 0.34);
+  --shadow-hover:
+    0 0 0 1px rgba(139, 184, 255, 0.12), 0 18px 38px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent 78%);
+  z-index: -1;
+}
+
+a,
+button {
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--ink);
+  letter-spacing: -0.05em;
+}
+
+h1 {
+  max-width: 12ch;
+  font-size: clamp(3.2rem, 8vw, 5.9rem);
+  line-height: 0.94;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: clamp(2rem, 4.5vw, 3.6rem);
+  line-height: 0.98;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 1.45rem;
+  line-height: 1.08;
+  font-weight: 700;
+}
+
+p {
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+small {
+  display: block;
+}

@@ -6,6 +6,7 @@
     "test": "pnpm -r test",
     "build": "pnpm -r build",
     "dev": "pnpm --filter @pcconnector/desktop dev",
+    "dev:web": "pnpm --filter @pcconnector/web dev",
     "lint": "pnpm -r lint"
   },
   "keywords": [],
