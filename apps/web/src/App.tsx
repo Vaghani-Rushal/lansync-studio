@@ -4,6 +4,10 @@ import { Layout } from './Layout'
 import { Home } from './pages/Home'
 import { PrivacyPolicy } from './pages/PrivacyPolicy'
 import { TermsOfService } from './pages/TermsOfService'
+import { Changelog } from './pages/Changelog'
+import { Docs } from './pages/Docs'
+import { Security } from './pages/Security'
+import { Faq } from './pages/Faq'
 import './App.css'
 
 type Theme = 'light' | 'dark'
@@ -29,6 +33,10 @@ function App() {
       <Layout theme={theme} setTheme={setTheme}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/docs" element={<Docs />} />
+          <Route path="/changelog" element={<Changelog />} />
+          <Route path="/security" element={<Security />} />
+          <Route path="/faq" element={<Faq />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
         </Routes>

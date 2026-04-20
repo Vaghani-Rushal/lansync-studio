@@ -21,75 +21,16 @@ const downloads = [
   },
 ]
 
-type FeatureIconKey = 'network' | 'lock' | 'bolt' | 'shield' | 'layers' | 'terminal'
+const highlights = ['No cloud', 'Join with a code', 'macOS + Windows']
 
-const features: Array<{ title: string; body: string; icon: FeatureIconKey }> = [
-  {
-    title: 'LAN-only by design',
-    body: 'Traffic stays on your local subnet. No relay servers, no cloud sync, no internet dependency.',
-    icon: 'network',
-  },
-  {
-    title: 'Zero-storage workflow',
-    body: 'Preview and edit files straight from the host machine. No duplicated copies on every laptop.',
-    icon: 'layers',
-  },
-  {
-    title: 'Fast team handoff',
-    body: 'Share a workspace, approve join requests, and let teammates open the exact files in seconds.',
-    icon: 'bolt',
-  },
-  {
-    title: 'Private by default',
-    body: 'No accounts, no telemetry, no sign-ups. The host is the source of truth for every byte.',
-    icon: 'shield',
-  },
-  {
-    title: 'Mixed-platform ready',
-    body: 'macOS and Windows hosts and joiners coexist on the same network without special configuration.',
-    icon: 'terminal',
-  },
-  {
-    title: 'Short-code join',
-    body: 'Hand a teammate a four-character code and they are in. One approval from the host, done.',
-    icon: 'lock',
-  },
-]
-
-const faqs = [
-  {
-    q: 'Does LanSync Studio upload anything to the cloud?',
-    a: 'No. Every byte stays on your local network. LanSync does not operate relay or sync servers. The host machine is the source of truth.',
-  },
-  {
-    q: 'Do teammates need an account?',
-    a: 'No sign-up or login is required. Joining a workspace takes a four-character short code and one approval from the host.',
-  },
-  {
-    q: 'Which platforms are supported?',
-    a: 'macOS (Apple silicon and Intel) and Windows 10 or later. Hosts and joiners can mix platforms on the same network.',
-  },
-  {
-    q: 'Is it safe for sensitive work?',
-    a: 'LanSync is built for studios, classrooms, and air-gapped environments. Because it never touches the internet, it fits use-cases where cloud tools cannot.',
-  },
+const stats = [
+  { value: '0', label: 'Cloud uploads' },
+  { value: '<100', label: 'ms first byte' },
+  { value: '7788', label: 'Local port' },
+  { value: '2', label: 'Platforms' },
 ]
 
 type ClientPlatform = 'mac' | 'windows' | 'other'
-
-function DownloadIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 3v11m0 0 4-4m-4 4-4-4M4 17v2h16v-2"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
 
 function PlatformIcon({ platform }: { platform: 'mac' | 'windows' | 'other' }) {
   if (platform === 'mac') {
@@ -106,84 +47,121 @@ function PlatformIcon({ platform }: { platform: 'mac' | 'windows' | 'other' }) {
       </svg>
     )
   }
-  return <DownloadIcon />
-}
-
-function ArrowIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 12h14m0 0-6-6m6 6-6 6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v11m0 0 4-4m-4 4-4-4M4 17v2h16v-2" />
     </svg>
   )
 }
 
-function FeatureIcon({ name }: { name: FeatureIconKey }) {
-  const common = {
-    width: 18,
-    height: 18,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.6,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    'aria-hidden': true,
-  }
-  switch (name) {
-    case 'network':
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="3" />
-          <circle cx="5" cy="5" r="2" />
-          <circle cx="19" cy="5" r="2" />
-          <circle cx="5" cy="19" r="2" />
-          <circle cx="19" cy="19" r="2" />
-          <path d="m7 7 3 3m7-3-3 3m-7 7 3-3m7 3-3-3" />
-        </svg>
-      )
-    case 'lock':
-      return (
-        <svg {...common}>
-          <rect x="4" y="11" width="16" height="10" rx="2" />
-          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-        </svg>
-      )
-    case 'bolt':
-      return (
-        <svg {...common}>
-          <path d="M13 3 4 14h7l-1 7 9-11h-7l1-7Z" />
-        </svg>
-      )
-    case 'shield':
-      return (
-        <svg {...common}>
-          <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" />
-          <path d="m9 12 2 2 4-4" />
-        </svg>
-      )
-    case 'layers':
-      return (
-        <svg {...common}>
-          <path d="m12 3 9 5-9 5-9-5 9-5Z" />
-          <path d="m3 13 9 5 9-5" />
-          <path d="m3 17 9 5 9-5" />
-        </svg>
-      )
-    case 'terminal':
-      return (
-        <svg {...common}>
-          <rect x="3" y="4" width="18" height="16" rx="2" />
-          <path d="m7 9 3 3-3 3m6 0h4" />
-        </svg>
-      )
-  }
-}
+const BoltIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8z" />
+  </svg>
+)
+
+const ShieldIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3 4 6v6c0 5 3.4 8.5 8 9 4.6-.5 8-4 8-9V6l-8-3z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+)
+
+const NetworkIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <circle cx="4" cy="5" r="2" />
+    <circle cx="20" cy="5" r="2" />
+    <circle cx="4" cy="19" r="2" />
+    <circle cx="20" cy="19" r="2" />
+    <path d="m6 6 4 4m8-4-4 4m-8 8 4-4m8 4-4-4" />
+  </svg>
+)
+
+const features = [
+  {
+    icon: <BoltIcon />,
+    title: 'Instant sharing',
+    body: 'Pick a folder, get a code. Peers join from the same Wi-Fi in one click.',
+  },
+  {
+    icon: <ShieldIcon />,
+    title: 'Nothing leaves the LAN',
+    body: 'No cloud relay. No telemetry. Works on air-gapped networks.',
+  },
+  {
+    icon: <NetworkIcon />,
+    title: 'Live, not synced',
+    body: 'Clients stream files on demand. No duplicate copies, no drift.',
+  },
+]
+
+const steps = [
+  {
+    label: 'Host',
+    title: 'Share a workspace',
+    body: 'Pick a folder. Set default permissions.',
+    mock: (
+      <div className="step-mock">
+        <div className="step-mock-head">
+          <span className="step-mock-dot" /> Workspace
+        </div>
+        <div className="step-mock-field">design-system</div>
+        <div className="step-mock-row">
+          <span className="chip chip-active">View + Edit</span>
+          <span className="chip">View only</span>
+        </div>
+        <div className="step-mock-btn">Pick folder →</div>
+      </div>
+    ),
+  },
+  {
+    label: 'Join',
+    title: 'Enter the code',
+    body: 'Or pick a host that appears on your LAN.',
+    mock: (
+      <div className="step-mock">
+        <div className="step-mock-head">
+          <span className="step-mock-dot dot-indigo" /> Session code
+        </div>
+        <div className="step-mock-code">4HD9</div>
+        <div className="step-mock-list">
+          <div className="step-mock-list-item">
+            <span className="step-mock-dot dot-green" />
+            <span>Maya's Mac · design-system</span>
+          </div>
+          <div className="step-mock-list-item">
+            <span className="step-mock-dot dot-green" />
+            <span>Alex-PC · shared-docs</span>
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    label: 'Work',
+    title: 'Open and edit',
+    body: 'Files stream on demand. Edits save to the host.',
+    mock: (
+      <div className="step-mock">
+        <div className="step-mock-head">
+          <span className="step-mock-dot dot-green" /> Live · README.md
+        </div>
+        <div className="step-mock-lines">
+          <div className="mock-line w60" />
+          <div className="mock-line w90" />
+          <div className="mock-line w40" />
+          <div className="mock-line w80" />
+          <div className="mock-line w55" />
+        </div>
+        <div className="step-mock-footer">
+          <span className="chip chip-active">Saved</span>
+          <span className="mock-mono">2 sec ago</span>
+        </div>
+      </div>
+    ),
+  },
+]
 
 function getClientPlatform(): ClientPlatform {
   if (typeof window === 'undefined') return 'other'
@@ -194,132 +172,12 @@ function getClientPlatform(): ClientPlatform {
   return 'other'
 }
 
-function ProductPreview() {
-  return (
-    <div className="preview" aria-hidden="true">
-      <div className="preview-chrome">
-        <span className="preview-dot" />
-        <span className="preview-dot" />
-        <span className="preview-dot" />
-        <div className="preview-title">LAN Share · Desktop</div>
-      </div>
-
-      <div className="preview-app">
-        <header className="app-header">
-          <div className="app-brand">
-            <span className="app-brand-mark">L</span>
-            <div className="app-brand-text">
-              <span className="app-brand-name">LAN Share</span>
-              <span className="app-brand-sub">Real-time · Zero cloud · Pure local</span>
-            </div>
-          </div>
-
-          <div className="app-user">
-            <span className="app-user-avatar">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm0 2c-4 0-8 2-8 6v2h16v-2c0-4-4-6-8-6Z" />
-              </svg>
-            </span>
-            <span>Alex Park</span>
-          </div>
-        </header>
-
-        <div className="app-actions">
-          <button className="app-action is-primary" type="button">
-            <div className="app-action-icon" data-tone="share">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3v12" />
-                <path d="m7 8 5-5 5 5" />
-                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-              </svg>
-            </div>
-            <div className="app-action-body">
-              <div className="app-action-title">
-                Share a file
-                <span className="app-action-pill">⌘ N</span>
-              </div>
-              <div className="app-action-desc">Host one or more workspaces on the LAN</div>
-            </div>
-          </button>
-
-          <button className="app-action" type="button">
-            <div className="app-action-icon" data-tone="join">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="3" y="7" width="18" height="12" rx="2" />
-                <path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" />
-                <path d="M10 13h4" />
-              </svg>
-            </div>
-            <div className="app-action-body">
-              <div className="app-action-title">Join a session</div>
-              <div className="app-action-desc">Enter a share code to connect</div>
-              <div className="app-code-row" aria-hidden="true">
-                <span>4</span><span>H</span><span>D</span><span className="is-cursor">9</span>
-              </div>
-            </div>
-          </button>
-        </div>
-
-        <div className="app-section">
-          <div className="app-section-head">
-            <span className="app-section-label">Nearby devices</span>
-            <span className="app-section-count">3 found</span>
-          </div>
-
-          <ul className="app-devices">
-            <li>
-              <span className="app-device-dot" data-tone="mac" />
-              <div>
-                <div className="app-device-name">Ava's MacBook Pro</div>
-                <div className="app-device-meta">macOS 14 · Studio-A · Host</div>
-              </div>
-              <span className="app-device-action">Request</span>
-            </li>
-            <li>
-              <span className="app-device-dot" data-tone="win" />
-              <div>
-                <div className="app-device-name">Noah's Windows</div>
-                <div className="app-device-meta">Windows 11 · Marketing</div>
-              </div>
-              <span className="app-device-action">Request</span>
-            </li>
-            <li>
-              <span className="app-device-dot" data-tone="mac" />
-              <div>
-                <div className="app-device-name">Kai's iMac</div>
-                <div className="app-device-meta">macOS 14 · Design · Joined</div>
-              </div>
-              <span className="app-device-action is-joined">Joined</span>
-            </li>
-          </ul>
-        </div>
-
-        <footer className="app-status">
-          <span className="app-status-pill">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="4" y="11" width="16" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-            No internet · No cloud · LAN only
-          </span>
-          <span className="app-status-pill is-scanning">
-            <span className="app-scan-dot" />
-            Scanning
-          </span>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
 export function Home() {
   const [platform] = useState<ClientPlatform>(getClientPlatform)
 
   const visibleDownloads = downloads.filter(
     (download) => platform === 'other' || download.platform === platform
   )
-
-  const primaryDownload = visibleDownloads[0] ?? downloads[0]
 
   useEffect(() => {
     const sections = Array.from(
@@ -333,7 +191,7 @@ export function Home() {
           entry.target.classList.toggle('is-visible', entry.isIntersecting)
         }
       },
-      { threshold: 0.12, rootMargin: '0px 0px -6% 0px' }
+      { threshold: 0.15, rootMargin: '0px 0px -8% 0px' }
     )
 
     for (const section of sections) {
@@ -345,54 +203,181 @@ export function Home() {
 
   return (
     <>
-      <section className="hero reveal-section" id="hero" data-reveal>
-        <a className="announcement" href="#downloads">
-          <span className="announcement-tag">New</span>
-          <span>LanSync Studio 1.0 is here</span>
-          <ArrowIcon />
-        </a>
+      {/* ─── Hero ─────────────────────────────────────────────── */}
+      <section className="hero-section reveal-section" id="hero" data-reveal>
+        <div className="hero-copy">
+          <p className="eyebrow">LAN-native file sharing</p>
+          <h1>Share files. On your network. In seconds.</h1>
 
-        <h1 className="hero-title">
-          Share workspaces across your LAN.
-          <span className="hero-title-accent"> Never touch the cloud.</span>
-        </h1>
+          <div
+            className={`hero-actions ${visibleDownloads.length === 1 ? 'hero-actions--single' : ''}`}
+            id="downloads"
+          >
+            {visibleDownloads.map((download) => (
+              <a className="download-card" key={download.title} href={download.href}>
+                <div className="download-card-body">
+                  <span className="download-card-title">{download.title}</span>
+                  <small>{download.meta}</small>
+                </div>
+                <span className="download-card-arrow" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </span>
+              </a>
+            ))}
+          </div>
 
-        <p className="hero-sub">
-          A calm, native-feeling desktop app that lets macOS and Windows teams move
-          files, previews, and edits across the same network — with zero uploads and zero sign-ups.
-        </p>
-
-        <div className="hero-ctas">
-          <a className="btn btn-primary" href={primaryDownload.href}>
-            <PlatformIcon platform={primaryDownload.platform as 'mac' | 'windows' | 'other'} />
-            <span>{primaryDownload.title}</span>
-          </a>
-          <a className="btn btn-ghost" href="#how-it-works">
-            See how it works
-            <ArrowIcon />
-          </a>
-        </div>
-
-        <p className="hero-foot">
-          Free · Open on GitHub · macOS &amp; Windows
-        </p>
-      </section>
-
-      <section className="preview-stage reveal-section" data-reveal>
-        <ProductPreview />
-      </section>
-
-      <section className="section reveal-section" id="features" data-reveal>
-        <div className="section-head">
-          <p className="eyebrow">Why teams use it</p>
-          <h2>Local collaboration. None of the cloud friction.</h2>
-        </div>
-        <div className="feature-grid">
-          {features.map((feature) => (
-            <article className="feature" key={feature.title}>
-              <span className="feature-icon" aria-hidden="true">
-                <FeatureIcon name={feature.icon} />
+          <div className="hero-meta">
+            {highlights.map((item) => (
+              <span className="meta-pill" key={item}>
+                <span className="meta-dot" /> {item}
               </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="hero-visual" aria-hidden="true">
+          <div className="studio-window studio-window-main">
+            <div className="window-bar">
+              <span /><span /><span />
+            </div>
+            <div className="window-grid">
+              <div className="window-panel window-panel-primary">
+                <p className="panel-label">Live workspace</p>
+                <h2>design-system</h2>
+                <ul>
+                  <li>Assets</li>
+                  <li>Components</li>
+                  <li>Docs</li>
+                  <li>Release notes</li>
+                </ul>
+              </div>
+              <div className="window-panel">
+                <p className="panel-label">Session</p>
+                <div className="signal-row">
+                  <strong>4 peers</strong>
+                  <span>LAN active</span>
+                </div>
+                <div className="signal-meter">
+                  <span /><span /><span /><span />
+                </div>
+              </div>
+              <div className="window-panel window-panel-wide">
+                <p className="panel-label">Activity</p>
+                <div className="activity-item">
+                  <span>Maya joined</span>
+                  <strong>just now</strong>
+                </div>
+                <div className="activity-item">
+                  <span>README.md</span>
+                  <strong>edited</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="studio-window studio-window-side">
+            <p className="panel-label">Quick join</p>
+            <div className="join-code">4HD9</div>
+            <div className="join-note">Same LAN. One tap.</div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── LAN diagram ──────────────────────────────────────── */}
+      <section className="diagram-section reveal-section" data-reveal>
+        <div className="section-heading centered">
+          <p className="eyebrow">How the network works</p>
+          <h2>One host. Many peers. Zero cloud.</h2>
+        </div>
+
+        <div className="lan-diagram" aria-hidden="true">
+          <svg viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#7170ff" stopOpacity="0.25" />
+                <stop offset="100%" stopColor="#7170ff" stopOpacity="0" />
+              </radialGradient>
+              <linearGradient id="stroke" x1="0" x2="1">
+                <stop offset="0%" stopColor="#5e6ad2" stopOpacity="0.4" />
+                <stop offset="50%" stopColor="#7170ff" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#5e6ad2" stopOpacity="0.4" />
+              </linearGradient>
+            </defs>
+
+            <circle cx="450" cy="170" r="160" fill="url(#glow)" />
+
+            <g stroke="url(#stroke)" strokeWidth="1.4" fill="none" strokeLinecap="round">
+              <path d="M 450 170 C 340 110, 220 100, 140 80" className="lan-path" />
+              <path d="M 450 170 C 570 100, 690 95, 760 80" className="lan-path" />
+              <path d="M 450 170 C 360 240, 240 260, 140 280" className="lan-path" />
+              <path d="M 450 170 C 560 250, 680 260, 760 280" className="lan-path" />
+              <path d="M 450 170 C 440 240, 430 280, 450 310" className="lan-path" />
+            </g>
+
+            <g fill="#7170ff">
+              <circle r="3" className="lan-packet">
+                <animateMotion dur="3.2s" repeatCount="indefinite" path="M 450 170 C 340 110, 220 100, 140 80" />
+              </circle>
+              <circle r="3" className="lan-packet">
+                <animateMotion dur="3.6s" begin="0.4s" repeatCount="indefinite" path="M 450 170 C 570 100, 690 95, 760 80" />
+              </circle>
+              <circle r="3" className="lan-packet">
+                <animateMotion dur="3.4s" begin="0.8s" repeatCount="indefinite" path="M 450 170 C 360 240, 240 260, 140 280" />
+              </circle>
+              <circle r="3" className="lan-packet">
+                <animateMotion dur="3.8s" begin="1.2s" repeatCount="indefinite" path="M 450 170 C 560 250, 680 260, 760 280" />
+              </circle>
+            </g>
+
+            <g>
+              <rect x="400" y="130" width="100" height="80" rx="14" fill="#191a1b" stroke="#7170ff" strokeWidth="1.2" />
+              <text x="450" y="165" textAnchor="middle" fontFamily="Inter, sans-serif" fontSize="11" fontWeight="510" fill="#8a8f98" letterSpacing="0.12em">HOST</text>
+              <text x="450" y="188" textAnchor="middle" fontFamily="Berkeley Mono, ui-monospace" fontSize="13" fontWeight="510" fill="#f7f8f8">design-system</text>
+            </g>
+
+            {[
+              { x: 100, y: 60, name: 'Maya' },
+              { x: 720, y: 60, name: 'Alex' },
+              { x: 100, y: 260, name: 'Sam' },
+              { x: 720, y: 260, name: 'Kai' },
+              { x: 420, y: 290, name: 'Jin' },
+            ].map((p) => (
+              <g key={p.name}>
+                <rect x={p.x} y={p.y} width="80" height="50" rx="10" fill="#0f1011" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                <circle cx={p.x + 14} cy={p.y + 25} r="3" fill="#10b981" />
+                <text x={p.x + 26} y={p.y + 30} fontFamily="Inter, sans-serif" fontSize="12" fontWeight="510" fill="#d0d6e0">{p.name}</text>
+              </g>
+            ))}
+
+            <g opacity="0.55" transform="translate(820, 30)">
+              <text x="0" y="-4" fontFamily="Inter, sans-serif" fontSize="9" fontWeight="510" letterSpacing="0.18em" fill="#eb5757">NO</text>
+              <path d="M 6 0 Q 14 -6 22 0 Q 30 -2 34 4 Q 40 4 40 10 L 6 10 Q 0 10 0 6 Q 0 2 6 0 Z" fill="none" stroke="#eb5757" strokeWidth="1.2" />
+              <line x1="-2" y1="-2" x2="42" y2="14" stroke="#eb5757" strokeWidth="1.6" strokeLinecap="round" />
+            </g>
+          </svg>
+        </div>
+      </section>
+
+      {/* ─── Stats strip ──────────────────────────────────────── */}
+      <section className="stats-strip reveal-section" data-reveal>
+        {stats.map((s) => (
+          <div className="stat" key={s.label}>
+            <div className="stat-value">{s.value}</div>
+            <div className="stat-label">{s.label}</div>
+          </div>
+        ))}
+      </section>
+
+      {/* ─── Features (bento with icons) ───────────────────────── */}
+      <section className="content-section reveal-section" id="features" data-reveal>
+        <div className="section-heading">
+          <p className="eyebrow">Why it feels different</p>
+          <h2>Built for the network you're already on.</h2>
+        </div>
+        <div className="bento-grid">
+          {features.map((feature) => (
+            <article className="bento-card" key={feature.title}>
+              <div className="bento-icon">{feature.icon}</div>
               <h3>{feature.title}</h3>
               <p>{feature.body}</p>
             </article>
@@ -400,131 +385,50 @@ export function Home() {
         </div>
       </section>
 
-      <section className="section reveal-section" id="how-it-works" data-reveal>
-        <div className="section-head">
+      {/* ─── How it works (with mini-mocks) ────────────────────── */}
+      <section
+        className="content-section workflow-section reveal-section"
+        id="how-it-works"
+        data-reveal
+      >
+        <div className="section-heading">
           <p className="eyebrow">How it works</p>
-          <h2>Three steps from host machine to shared files.</h2>
+          <h2>Three steps. No account. No setup.</h2>
         </div>
-
-        <div className="steps-grid">
-          <article className="step-card">
-            <div className="step-visual" aria-hidden="true">
-              <span className="step-waves" />
-              <span className="step-waves step-waves--2" />
-              <div className="step-folder">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
-                </svg>
-                <span>design-system</span>
-                <span className="step-folder-dot" />
+        <div className="step-grid step-grid-visual">
+          {steps.map((step, index) => (
+            <article className="step-card-v2" key={step.label}>
+              <div className="step-card-mock">{step.mock}</div>
+              <div className="step-card-meta">
+                <span className="step-number">0{index + 1} · {step.label}</span>
+                <h3>{step.title}</h3>
+                <p>{step.body}</p>
               </div>
-              <div className="step-caption">Broadcasting on LAN</div>
-            </div>
-            <div className="step-card-body">
-              <span className="step-num">01</span>
-              <h3>Host a workspace</h3>
-              <p>Pick a folder on your desktop and open it as a shared workspace. LanSync broadcasts it on your network.</p>
-            </div>
-          </article>
-
-          <article className="step-card">
-            <div className="step-visual" aria-hidden="true">
-              <ul className="step-peers">
-                <li>
-                  <span className="step-peer-dot" data-tone="ok" />
-                  <span className="step-peer-name">Ava's MacBook</span>
-                  <span className="step-peer-status">Discovered</span>
-                </li>
-                <li>
-                  <span className="step-peer-dot" data-tone="info" />
-                  <span className="step-peer-name">Noah's Windows</span>
-                  <span className="step-peer-status">Joining…</span>
-                </li>
-                <li>
-                  <span className="step-peer-dot" data-tone="muted" />
-                  <span className="step-peer-name">Kai's iMac</span>
-                  <span className="step-peer-status">Idle</span>
-                </li>
-              </ul>
-              <div className="step-code" aria-hidden="true">
-                <span>4</span><span>H</span><span>D</span><span className="is-focus">9</span>
-              </div>
-            </div>
-            <div className="step-card-body">
-              <span className="step-num">02</span>
-              <h3>Teammates join</h3>
-              <p>They discover the workspace on the same LAN, or paste a four-character short code.</p>
-            </div>
-          </article>
-
-          <article className="step-card">
-            <div className="step-visual" aria-hidden="true">
-              <div className="step-toast">
-                <span className="step-toast-icon">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m5 12 5 5L20 7" />
-                  </svg>
-                </span>
-                <div className="step-toast-body">
-                  <strong>Request approved</strong>
-                  <span>Noah joined · Code 4HD9</span>
-                </div>
-              </div>
-              <div className="step-files">
-                <div className="step-file"><span className="step-file-icon">▣</span>Assets<span className="step-file-meta">48</span></div>
-                <div className="step-file"><span className="step-file-icon">▣</span>Components<span className="step-file-meta">64</span></div>
-                <div className="step-file is-active"><span className="step-file-icon">▢</span>README.md<span className="step-file-meta">Synced</span></div>
-              </div>
-            </div>
-            <div className="step-card-body">
-              <span className="step-num">03</span>
-              <h3>Approve and go</h3>
-              <p>Accept the request and teammates are reading and editing the exact files — with zero uploads.</p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section className="section reveal-section" data-reveal>
-        <div className="section-head">
-          <p className="eyebrow">FAQ</p>
-          <h2>Answers for the skeptical.</h2>
-        </div>
-        <div className="faq">
-          {faqs.map((item) => (
-            <details className="faq-item" key={item.q}>
-              <summary>
-                <span>{item.q}</span>
-                <span className="faq-toggle" aria-hidden="true">+</span>
-              </summary>
-              <p>{item.a}</p>
-            </details>
+            </article>
           ))}
         </div>
       </section>
 
-      <section className="section cta-section reveal-section" id="downloads" data-reveal>
-        <div className="cta-card">
+      {/* ─── Download CTA ─────────────────────────────────────── */}
+      <section className="content-section download-section reveal-section" data-reveal>
+        <div className="download-panel">
           <div>
-            <p className="eyebrow">Install LanSync Studio</p>
-            <h2>Ready on the machines you already use.</h2>
-            <p className="cta-sub">
-              Direct desktop downloads from the latest GitHub Release. No telemetry, no nested installers.
-            </p>
+            <p className="eyebrow">Ready when you are</p>
+            <h2>Install once. Share instantly.</h2>
           </div>
-          <div className="cta-downloads">
+          <div className="download-stack">
             {visibleDownloads.map((download) => (
-              <a className="download-row" key={download.title} href={download.href}>
-                <span className="download-row-icon">
+              <a className="download-btn-large" key={download.title} href={download.href}>
+                <div className="download-btn-icon">
                   <PlatformIcon platform={download.platform as 'mac' | 'windows' | 'other'} />
-                </span>
-                <span className="download-row-body">
-                  <span className="download-row-title">{download.title}</span>
-                  <span className="download-row-meta">{download.meta}</span>
-                </span>
-                <span className="download-row-arrow" aria-hidden="true">
-                  <ArrowIcon />
-                </span>
+                </div>
+                <div className="download-btn-content">
+                  <span className="download-btn-title">{download.title}</span>
+                  <span className="download-btn-meta">{download.meta}</span>
+                </div>
+                <div className="download-btn-arrow">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </div>
               </a>
             ))}
           </div>
