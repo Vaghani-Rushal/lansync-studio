@@ -45,7 +45,7 @@ export const NameSetupScreen = ({
 
   return (
     <section className="screen ui-shell">
-      <div className="brand-block card-surface">
+      <div className="brand-block">
         <div className="brand-icon">L</div>
         <div>
           <h1>{title}</h1>
@@ -53,33 +53,38 @@ export const NameSetupScreen = ({
         </div>
       </div>
 
-      <div className="card-surface name-form">
-        <div className="section-title">Display name</div>
-        <input
-          value={name}
-          autoFocus
-          placeholder="e.g. Alex"
-          maxLength={32}
-          onChange={(event) => {
-            setName(event.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void handleSubmit();
-          }}
-        />
-        <div className="muted">2–32 characters. This is the name peers will see.</div>
+      <div className="card-surface" style={{ display: "grid", gap: "var(--space-4)" }}>
+        <p className="eyebrow">Display name</p>
+        <div className="input-with-icon">
+          <span className="input-icon">◎</span>
+          <input
+            value={name}
+            autoFocus
+            placeholder="e.g. Alex"
+            maxLength={32}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (error) setError(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void handleSubmit();
+            }}
+          />
+        </div>
+        <div className="muted" style={{ fontSize: 12 }}>
+          2–32 characters · peers see this name
+        </div>
         {error ? <div className="error-banner">{error}</div> : null}
       </div>
 
-      <div className="row-wrap">
+      <div className="row-wrap" style={{ justifyContent: "flex-end" }}>
         {onCancel ? (
           <button className="ghost-btn" onClick={onCancel} disabled={submitting}>
             Cancel
           </button>
         ) : null}
         <button className="primary-btn" disabled={submitting || name.trim().length < 2} onClick={handleSubmit}>
-          {submitting ? "Saving..." : submitLabel}
+          {submitting ? "Saving…" : submitLabel}
         </button>
       </div>
     </section>
